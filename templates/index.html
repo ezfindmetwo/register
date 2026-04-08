@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>排程預約系統</title>
+<style>
+/* ── Reset & Base ──────────────────────────────────────── */
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#0b0f1a;color:#e2e8f0;-webkit-font-smoothing:antialiased}
+button,input{font-family:inherit}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:#151c2c}
+::-webkit-scrollbar-thumb{background:#2d3f5a;border-radius:3px}
+input[type=date]::-webkit-calendar-picker-indicator,
+input[type=time]::-webkit-calendar-picker-indicator{filter:invert(.5)}
+
+/* ── Animations ────────────────────────────────────────── */
+@keyframes fadeUp {from{transform:translateY(16px);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes slideR {from{transform:translateX(22px);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes spin   {to{transform:rotate(360deg)}}
+
+.fade-up{animation:fadeUp .35s ease both}
+.hidden {display:none!important}
+
+/* ── Toast ─────────────────────────────────────────────── */
+#toast{position:fixed;top:16px;right:16px;z-index:9999;pointer-events:none}
+.toast-msg{
+  padding:12px 20px;border-radius:12px;font-size:13px;font-weight:600;color:#fff;
+  margin-bottom:8px;max-width:360px;line-height:1.5;
+  animation:slideR .28s ease;box-shadow:0 8px 32px rgba(0,0,0,.55)
+}
+.toast-info   {background:#2563eb}
+.toast-success{background:#059669}
+.toast-error  {background:#dc2626}
+.toast-code   {background:#7c3aed}
+
+/* ── Loading ───────────────────────────────────────────── */
+#loading{position:fixed;inset:0;background:rgba(11,15,26,.82);z-index:8888;
+  display:flex;align-items:center;justify-content:center}
+.spinner{width:40px;height:40px;border:3px solid #1e293b;
+  border-top-color:#3b82f6;border-radius:50%;animation:spin .8s linear infinite}
+
+/* ── Center Page ───────────────────────────────────────── */
+.cp{min-height:100vh;display:flex;align-items:center;justify-content:center;
+  padding:24px;background:linear-gradient(135deg,#0b0f1a 0%,#0d1424 100%)}
+
+/* ── Card ──────────────────────────────────────────────── */
+.card{background:#0f172a;border:1px solid #1e293b;border-radius:20px;
+  padding:36px;width:100%;max-width:420px}
+.card-icon {font-size:44px;margin-bottom:12px}
+.card-title{font-size:26px;font-weight:800;color:#f1f5f9;letter-spacing:-.5px}
+.card-sub  {color:#64748b;font-size:13px;margin-top:6px;line-height:1.6}
+.back-btn  {color:#475569;background:none;border:none;cursor:pointer;
+  font-size:13px;margin-bottom:24px;padding:0;display:flex;align-items:center;gap:4px}
+.back-btn:hover{color:#94a3b8}
+
+/* ── Forms ─────────────────────────────────────────────── */
+.fg{margin-bottom:14px}
+.fl{display:block;color:#94a3b8;font-size:12px;font-weight:600;margin-bottom:5px}
+.fi{width:100%;background:#080d18;border:1px solid #1e293b;color:#e2e8f0;
+  border-radius:10px;padding:10px 14px;font-size:14px;outline:none;transition:border-color .2s}
+.fi:focus{border-color:#3b82f6}
+.fi:disabled{opacity:.45;cursor:not-allowed}
+.fg2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.c2 {grid-column:1/-1}
+
+/* ── Buttons ───────────────────────────────────────────── */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  padding:10px 22px;border-radius:10px;font-size:14px;font-weight:700;
+  cursor:pointer;border:none;transition:all .18s;white-space:nowrap}
+.btn-p{background:#2563eb;color:#fff}
+.btn-p:hover{background:#1d4ed8}
+.btn-p:disabled{background:#1e293b;color:#475569;cursor:not-allowed}
+.btn-s{background:#1e293b;color:#cbd5e1;border:1px solid #2d3f5a}
+.btn-s:hover{background:#263044}
+.btn-ok {background:#064e3b;color:#fff}
+.btn-ok:hover{background:#065f46}
+.btn-ng {background:#7f1d1d;color:#fff}
+.btn-ng:hover{background:#991b1b}
+.btn-full{width:100%;padding:12px}
+.btn-sm {padding:7px 16px;font-size:13px}
+
+/* ── Home ──────────────────────────────────────────────── */
+.hero{text-align:center;margin-bottom:44px}
+.hero-icon {font-size:80px;margin-bottom:16px}
+.hero-title{font-size:44px;font-weight:900;color:#f1f5f9;letter-spacing:-1.5px}
+.hero-sub  {color:#64748b;font-size:18px;margin-top:8px}
+.home-row  {display:flex;gap:22px;justify-content:center}
+.hbtn{background:#1e293b;border:1px solid #2d3f5a;color:#f1f5f9;
+  padding:28px 44px;border-radius:18px;cursor:pointer;text-align:center;
+  transition:all .2s;min-width:160px}
+.hbtn:hover{transform:scale(1.05) translateY(-3px);box-shadow:0 20px 40px rgba(0,0,0,.5)}
+.hbtn.blue{background:#1d4ed8;border-color:#3b82f6}
+.hbtn .hi{font-size:38px;margin-bottom:10px}
+.hbtn .hl{font-size:18px;font-weight:700}
+.hbtn .hs{font-size:11px;color:#64748b;margin-top:4px}
+.hero-hint{color:#1e293b;font-size:11px;margin-top:24px;text-align:center}
+
+/* ── Admin Dashboard ───────────────────────────────────── */
+#v-admin{min-height:100vh;background:#0b0f1a}
+.dh{background:#0f172a;border-bottom:1px solid #1e293b;
+  padding:14px 24px;display:flex;align-items:center;justify-content:space-between}
+.db{display:flex;align-items:center;gap:10px}
+.db-name{color:#f1f5f9;font-weight:700;font-size:16px}
+.db-tag{background:rgba(59,130,246,.12);color:#60a5fa;font-size:11px;
+  padding:3px 10px;border-radius:20px;border:1px solid rgba(59,130,246,.25)}
+.dash-body{padding:22px 24px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;max-width:640px;margin-bottom:22px}
+.sc{background:#0f172a;border:1px solid #1e293b;border-radius:14px;padding:16px}
+.sc-i{font-size:24px;margin-bottom:6px}
+.sc-l{color:#64748b;font-size:11px;font-weight:600}
+.sc-v{font-size:22px;font-weight:800;color:#f1f5f9;margin-top:4px}
+.sc-v.open{color:#34d399}
+
+/* tabs */
+.tab-bar{background:#0f172a;border:1px solid #1e293b;border-radius:12px;
+  padding:4px;display:inline-flex;gap:2px;margin-bottom:18px}
+.tab-btn{padding:8px 20px;border-radius:9px;border:none;cursor:pointer;
+  font-size:13px;font-weight:700;background:transparent;color:#64748b;transition:all .18s}
+.tab-btn.on{background:#2563eb;color:#fff}
+.tab-btn:not(.on):hover{color:#cbd5e1}
+.tp{background:#0f172a;border:1px solid #1e293b;border-radius:18px;padding:28px;max-width:720px}
+.tp h3{color:#f1f5f9;font-size:17px;font-weight:700;margin-bottom:20px}
+
+/* day picker */
+.dp-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.db-day{width:40px;height:40px;border-radius:9px;border:1px solid #1e293b;
+  background:#080d18;color:#475569;font-size:13px;font-weight:700;cursor:pointer;transition:all .18s}
+.db-day.on{background:#1d4ed8;border-color:#3b82f6;color:#fff}
+
+/* status / test badges */
+.st-badge{display:inline-flex;align-items:center;gap:6px;
+  padding:8px 14px;border-radius:9px;font-size:13px;font-weight:600;margin-top:12px}
+.st-open  {background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.25);color:#34d399}
+.st-closed{background:#1e293b;border:1px solid #2d3f5a;color:#64748b}
+.tr{margin-top:12px;padding:10px 14px;border-radius:9px;font-size:13px}
+.tr-ok  {background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.25);color:#34d399}
+.tr-fail{background:rgba(239,68,68,.1) ;border:1px solid rgba(239,68,68,.25) ;color:#f87171}
+
+/* checkbox */
+.cb-row{display:flex;align-items:center;gap:8px;margin:6px 0}
+.cb-row input[type=checkbox]{width:15px;height:15px;accent-color:#3b82f6}
+.cb-row label{color:#cbd5e1;font-size:13px;cursor:pointer}
+
+/* bookings list */
+.bk-item{background:#080d18;border:1px solid #1e293b;border-radius:12px;padding:14px;margin-bottom:10px}
+.bk-email{color:#60a5fa;font-size:13px;font-weight:600;margin-bottom:9px}
+.bk-slots{display:flex;flex-wrap:wrap;gap:6px}
+.slot-pill{background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);
+  color:#34d399;font-size:11px;padding:4px 10px;border-radius:6px;font-family:monospace}
+.no-data{color:#2d3f5a;text-align:center;padding:48px 0;font-size:14px}
+
+/* ── Verify code input ─────────────────────────────────── */
+.code-inp{width:100%;background:#080d18;border:1px solid #334155;color:#f1f5f9;
+  border-radius:12px;padding:16px;font-size:36px;font-family:monospace;
+  letter-spacing:.35em;text-align:center;outline:none;transition:border-color .2s}
+.code-inp:focus{border-color:#3b82f6}
+
+/* ── Calendar ──────────────────────────────────────────── */
+#v-cal{min-height:100vh;background:#0b0f1a;display:flex;flex-direction:column}
+.cal-hd{background:#0f172a;border-bottom:1px solid #1e293b;
+  padding:12px 22px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.cal-title{color:#f1f5f9;font-weight:700;font-size:15px}
+.cal-meta {color:#475569;font-size:12px;margin-top:2px}
+.cal-right{display:flex;align-items:center;gap:22px;font-size:13px}
+.quota-ct{font-weight:700;color:#34d399}
+.quota-ct.full{color:#f59e0b}
+.cal-lgd{background:rgba(15,23,42,.9);border-bottom:1px solid #1e293b;
+  padding:8px 22px;display:flex;align-items:center;gap:22px;flex-shrink:0;flex-wrap:wrap}
+.lgd-item{display:flex;align-items:center;gap:6px;font-size:11px;color:#64748b}
+.lgd-sw  {width:14px;height:14px;border-radius:4px}
+.cal-nav{padding:12px 22px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.week-lbl{color:#94a3b8;font-size:14px;font-weight:600}
+.cal-body{flex:1;overflow:auto;padding:0 22px 22px}
+
+/* Grid */
+.cgrid{background:#0f172a;border:1px solid #1e293b;border-radius:16px;overflow:hidden;min-width:700px}
+.day-hdr-row{display:grid;border-bottom:1px solid #1e293b;background:#111827}
+.dh-cell{padding:10px 4px;text-align:center;border-right:1px solid #1e293b}
+.dh-cell:last-child{border-right:none}
+.dh-cell .dow {color:#64748b;font-size:10px;font-weight:700}
+.dh-cell .dn  {font-size:13px;font-weight:800;color:#e2e8f0;margin-top:3px}
+.dh-cell .tdot{width:5px;height:5px;background:#3b82f6;border-radius:50%;margin:4px auto 0}
+.dh-cell.today .dn{color:#60a5fa}
+.dh-cell.off  {opacity:.22}
+.time-col{overflow-y:auto}
+.slot-row{display:grid;border-bottom:1px solid rgba(30,41,59,.65)}
+.slot-row:last-child{border-bottom:none}
+.time-lbl{border-right:1px solid #1e293b;color:#2d3f5a;font-size:10px;
+  font-family:monospace;display:flex;align-items:center;justify-content:center;padding:0 3px}
+
+/* Slot cells */
+.sc2{margin:2px;border-radius:5px;height:34px;display:flex;align-items:center;
+  justify-content:center;font-size:11px;font-weight:700;transition:all .12s;cursor:default}
+.sc2.off  {background:transparent;opacity:.1}
+.sc2.free {background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.35);
+  cursor:pointer;color:#fbbf24}
+.sc2.free:hover{background:rgba(251,191,36,.3);transform:scale(1.04)}
+.sc2.mine {background:rgba(16,185,129,.18);border:1px solid rgba(16,185,129,.5);
+  cursor:pointer;color:#34d399}
+.sc2.mine:hover{background:rgba(16,185,129,.1)}
+.sc2.taken{background:rgba(71,85,105,.14);border:1px solid rgba(71,85,105,.22);color:#2d3f5a}
+.taken-lbl{font-size:9px}
+</style>
+</head>
+<body>
+
+<div id="toast"></div>
+<div id="loading" class="hidden"><div class="spinner"></div></div>
+
+<!-- ══════════════════════════════════════════ HOME ══════════════════════════ -->
+<div id="v-home" class="cp">
+  <div class="fade-up" style="width:100%;max-width:700px;text-align:center">
+    <div class="hero">
+      <div class="hero-icon">📅</div>
+      <div class="hero-title">排程預約系統</div>
+      <div class="hero-sub">Scheduling &amp; Registration Platform</div>
+    </div>
+    <div class="home-row">
+      <button class="hbtn" onclick="Nav.adminLogin()">
+        <div class="hi">🔑</div><div class="hl">管理者</div><div class="hs">Admin</div>
+      </button>
+      <button class="hbtn blue" onclick="Nav.userEmail()">
+        <div class="hi">👤</div><div class="hl">一般使用者</div><div class="hs">User</div>
+      </button>
+    </div>
+    <div class="hero-hint">示範管理者密碼：admin123</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════ ADMIN LOGIN ════════════════════════ -->
+<div id="v-admin-login" class="cp hidden">
+  <div class="card fade-up">
+    <button class="back-btn" onclick="Nav.home()">← 返回首頁</button>
+    <div class="card-icon">🔐</div>
+    <div class="card-title" style="margin-bottom:24px">管理者登入</div>
+    <div class="fg">
+      <label class="fl">管理者密碼</label>
+      <input class="fi" type="password" id="adm-pwd" placeholder="請輸入密碼"
+        onkeydown="if(event.key==='Enter')Admin.login()">
+    </div>
+    <button class="btn btn-p btn-full" onclick="Admin.login()">登入</button>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════ ADMIN DASHBOARD ═════════════════════ -->
+<div id="v-admin" class="hidden">
+  <div class="dh">
+    <div class="db">
+      <span style="font-size:20px">📅</span>
+      <span class="db-name">排程預約系統</span>
+      <span class="db-tag">管理後台</span>
+    </div>
+    <button class="btn btn-s btn-sm" onclick="Admin.logout()">登出 →</button>
+  </div>
+
+  <div class="dash-body">
+    <!-- Stats -->
+    <div class="stats">
+      <div class="sc"><div class="sc-i">📋</div><div class="sc-l">總預約數</div><div class="sc-v" id="s-total">—</div></div>
+      <div class="sc"><div class="sc-i">👥</div><div class="sc-l">已報名人數</div><div class="sc-v" id="s-users">—</div></div>
+      <div class="sc"><div class="sc-i">🎯</div><div class="sc-l">活動狀態</div><div class="sc-v" id="s-status">—</div></div>
+    </div>
+
+    <!-- Tab Bar -->
+    <div class="tab-bar">
+      <button class="tab-btn on" onclick="Admin.tab('event',this)">🎯 活動設定</button>
+      <button class="tab-btn"    onclick="Admin.tab('email',this)">📧 Email 設定</button>
+      <button class="tab-btn"    onclick="Admin.tab('bk',this)"   >📋 預約清單</button>
+    </div>
+
+    <!-- ── Tab: Event ── -->
+    <div class="tp" id="tp-event">
+      <h3>🎯 活動設定</h3>
+      <input type="hidden" id="ev-id">
+      <div class="fg"><label class="fl">活動名稱</label>
+        <input class="fi" id="ev-name" placeholder="例：2025年健康檢查預約"></div>
+      <div class="fg2">
+        <div class="fg"><label class="fl">開始日期</label><input class="fi" type="date" id="ev-sd"></div>
+        <div class="fg"><label class="fl">結束日期</label><input class="fi" type="date" id="ev-ed"></div>
+        <div class="fg"><label class="fl">每日開始時間</label><input class="fi" type="time" id="ev-ts" value="09:00"></div>
+        <div class="fg"><label class="fl">每日結束時間</label><input class="fi" type="time" id="ev-te" value="17:00"></div>
+        <div class="fg"><label class="fl">時段長度（分鐘）</label>
+          <input class="fi" type="number" id="ev-dur" value="30" min="5" max="480" step="5"></div>
+        <div class="fg"><label class="fl">每人最多選幾個時段</label>
+          <input class="fi" type="number" id="ev-max" value="3" min="1" max="100"></div>
+      </div>
+      <div class="fg">
+        <label class="fl">開放星期</label>
+        <div class="dp-row" id="dp">
+          <button class="db-day"    data-d="0">日</button>
+          <button class="db-day on" data-d="1">一</button>
+          <button class="db-day on" data-d="2">二</button>
+          <button class="db-day on" data-d="3">三</button>
+          <button class="db-day on" data-d="4">四</button>
+          <button class="db-day on" data-d="5">五</button>
+          <button class="db-day"    data-d="6">六</button>
+        </div>
+        <div id="slot-preview" style="color:#2d3f5a;font-size:12px;margin-top:8px"></div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
+        <button class="btn btn-p" onclick="Admin.saveEvent()">儲存活動設定</button>
+        <button class="btn btn-ok" id="btn-open"  onclick="Admin.toggleOpen(true)"  style="display:none">✅ 開放報名</button>
+        <button class="btn btn-ng" id="btn-close" onclick="Admin.toggleOpen(false)" style="display:none">🔒 關閉報名</button>
+      </div>
+      <div id="ev-st" class="st-badge st-closed hidden">🔒 報名已關閉</div>
+    </div>
+
+    <!-- ── Tab: Email ── -->
+    <div class="tp hidden" id="tp-email">
+      <h3>📧 Email 伺服器設定</h3>
+      <div class="fg2">
+        <div class="fg"><label class="fl">SMTP Host</label><input class="fi" id="em-host" placeholder="smtp.gmail.com"></div>
+        <div class="fg"><label class="fl">Port</label><input class="fi" type="number" id="em-port" value="587"></div>
+        <div class="fg"><label class="fl">帳號</label><input class="fi" id="em-user" placeholder="user@example.com"></div>
+        <div class="fg"><label class="fl">密碼</label><input class="fi" type="password" id="em-pass" placeholder="••••••••"></div>
+        <div class="fg c2"><label class="fl">寄件人 Email</label><input class="fi" id="em-from" placeholder="noreply@example.com"></div>
+        <div class="fg c2 cb-row"><input type="checkbox" id="em-ssl" checked><label for="em-ssl">啟用 SSL/TLS</label></div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:6px">
+        <button class="btn btn-p"   onclick="Admin.saveEmail()">儲存設定</button>
+        <button class="btn btn-s"   id="btn-test" onclick="Admin.testEmail()">連線測試</button>
+      </div>
+      <div id="test-res" class="tr hidden"></div>
+    </div>
+
+    <!-- ── Tab: Bookings ── -->
+    <div class="tp hidden" id="tp-bk">
+      <h3>📋 預約清單</h3>
+      <div id="bk-list"><div class="no-data">載入中...</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════ USER EMAIL ═══════════════════════ -->
+<div id="v-email" class="cp hidden">
+  <div class="card fade-up">
+    <button class="back-btn" onclick="Nav.home()">← 返回首頁</button>
+    <div class="card-icon">📧</div>
+    <div class="card-title">輸入 Email</div>
+    <div class="card-sub" id="ev-info" style="margin-bottom:20px">正在取得活動資訊...</div>
+    <div class="fg">
+      <label class="fl">Email 地址</label>
+      <input class="fi" type="email" id="u-email" placeholder="your@email.com"
+        onkeydown="if(event.key==='Enter')User.reqCode()">
+    </div>
+    <button class="btn btn-p btn-full" id="btn-code" onclick="User.reqCode()" disabled>發送驗證碼</button>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════ VERIFY CODE ══════════════════════ -->
+<div id="v-verify" class="cp hidden">
+  <div class="card fade-up">
+    <button class="back-btn" onclick="Nav.userEmail()">← 返回</button>
+    <div class="card-icon">🔢</div>
+    <div class="card-title">輸入驗證碼</div>
+    <div class="card-sub" style="margin-bottom:20px">
+      已寄送 6 位驗證碼至<br>
+      <span id="verify-email" style="color:#60a5fa"></span><br>（有效期 10 分鐘）
+    </div>
+    <div class="fg">
+      <input class="code-inp" id="code-inp" type="text" placeholder="A1B2C3" maxlength="6"
+        oninput="this.value=this.value.toUpperCase()"
+        onkeydown="if(event.key==='Enter')User.verify()">
+    </div>
+    <button class="btn btn-p btn-full" onclick="User.verify()">驗證並進入系統</button>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════ CALENDAR ═════════════════════════ -->
+<div id="v-cal" class="hidden">
+  <div class="cal-hd">
+    <div>
+      <div class="cal-title" id="cal-name">活動名稱</div>
+      <div class="cal-meta"  id="cal-range"></div>
+    </div>
+    <div class="cal-right">
+      <div>已選時段：<span class="quota-ct" id="cal-quota">0/3</span>
+        <span id="quota-warn" style="color:#f59e0b;font-size:11px;margin-left:5px;display:none">（已達上限）</span></div>
+      <span style="color:#475569;font-size:12px" id="cal-umail"></span>
+      <button class="btn btn-s btn-sm" onclick="User.logout()">登出</button>
+    </div>
+  </div>
+
+  <div class="cal-lgd">
+    <div class="lgd-item">
+      <div class="lgd-sw" style="background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.4)"></div>可選時段
+    </div>
+    <div class="lgd-item">
+      <div class="lgd-sw" style="background:rgba(16,185,129,.2);border:1px solid rgba(16,185,129,.5)"></div>我已選取（點擊取消）
+    </div>
+    <div class="lgd-item">
+      <div class="lgd-sw" style="background:rgba(71,85,105,.2);border:1px solid rgba(71,85,105,.3)"></div>已被他人預約
+    </div>
+    <div class="lgd-item">
+      <div class="lgd-sw" style="background:transparent;border:1px solid #1e293b;opacity:.4"></div>不在活動範圍
+    </div>
+  </div>
+
+  <div class="cal-nav">
+    <button class="btn btn-s btn-sm" onclick="Cal.prev()">← 上週</button>
+    <span class="week-lbl" id="week-lbl"></span>
+    <button class="btn btn-s btn-sm" onclick="Cal.next()">下週 →</button>
+  </div>
+
+  <div class="cal-body">
+    <div id="cal-grid"></div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════ JS ═══════════════════════════════ -->
+<script>
+'use strict';
+
+// ─── Utilities ────────────────────────────────────────────────────────────────
+const pad    = n => String(n).padStart(2,'0');
+const TODAY  = (()=>{const d=new Date();return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;})();
+const DAYS_E = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+const addDays = (ds,n) => {
+  const d=new Date(ds+'T00:00:00');d.setDate(d.getDate()+n);
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+};
+const dow      = ds => new Date(ds+'T00:00:00').getDay();
+const monOf    = ds => { const d=new Date(ds+'T00:00:00'),w=d.getDay(); d.setDate(d.getDate()-(w===0?6:w-1)); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; };
+const fmtDisp  = ds => { const d=new Date(ds+'T00:00:00'); return `${d.getMonth()+1}/${d.getDate()}`; };
+const genSlots = (s,e,dur) => {
+  if(!s||!e||!dur)return[];
+  const[sh,sm]=s.split(':').map(Number),[eh,em]=e.split(':').map(Number);
+  let cur=sh*60+sm;const end=eh*60+em,r=[];
+  while(cur+Number(dur)<=end){
+    const a=`${pad(Math.floor(cur/60))}:${pad(cur%60)}`;cur+=Number(dur);
+    r.push({start:a,end:`${pad(Math.floor(cur/60))}:${pad(cur%60)}`});
+  }
+  return r;
+};
+
+// ─── API ──────────────────────────────────────────────────────────────────────
+const api = {
+  async req(method,url,body){
+    const o={method,headers:{'Content-Type':'application/json'}};
+    if(body)o.body=JSON.stringify(body);
+    const res=await fetch(url,o);
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok)throw new Error(data.error||'伺服器錯誤');
+    return data;
+  },
+  get:    u    => api.req('GET',u),
+  post:   (u,b)=> api.req('POST',u,b),
+  put:    (u,b)=> api.req('PUT',u,b),
+  delete: (u,b)=> api.req('DELETE',u,b),
+};
+
+// ─── Toast ────────────────────────────────────────────────────────────────────
+const Toast = {
+  show(msg,type='info'){
+    const el=document.createElement('div');
+    el.className=`toast-msg toast-${type}`;el.textContent=msg;
+    document.getElementById('toast').appendChild(el);
+    setTimeout(()=>el.remove(),5000);
+  }
+};
+
+// ─── Loading ──────────────────────────────────────────────────────────────────
+const Load = {
+  show(){ document.getElementById('loading').classList.remove('hidden'); },
+  hide(){ document.getElementById('loading').classList.add('hidden'); },
+};
+
+// ─── State ────────────────────────────────────────────────────────────────────
+const S = { userEmail:null, event:null, weekStart:monOf(TODAY) };
+
+// ─── Navigation ───────────────────────────────────────────────────────────────
+const VIEWS = ['home','admin-login','admin','email','verify','cal'];
+const Nav = {
+  show(v){ VIEWS.forEach(n=>document.getElementById(`v-${n}`).classList.add('hidden')); document.getElementById(`v-${v}`).classList.remove('hidden'); },
+  home()      { Nav.show('home'); },
+  adminLogin(){ Nav.show('admin-login'); document.getElementById('adm-pwd').focus(); },
+  userEmail() { Nav.show('email'); User.checkEvent(); },
+};
+
+// ─── App Init ─────────────────────────────────────────────────────────────────
+async function init(){
+  try{
+    const st=await api.get('/api/auth/status');
+    if(st.isAdmin)  { Nav.show('admin');  await Admin.load(); return; }
+    if(st.userEmail){ S.userEmail=st.userEmail; await User.enterCal(); return; }
+  }catch{}
+  Nav.show('home');
+}
+
+// ─── Admin ────────────────────────────────────────────────────────────────────
+const Admin = {
+  async load(){ await Promise.all([Admin.loadEvent(),Admin.loadEmail(),Admin.loadBookings()]); },
+
+  tab(name,btn){
+    ['event','email','bk'].forEach(t=>document.getElementById(`tp-${t}`).classList.add('hidden'));
+    document.getElementById(`tp-${name}`).classList.remove('hidden');
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('on'));
+    btn.classList.add('on');
+    if(name==='bk')Admin.loadBookings();
+  },
+
+  async login(){
+    const pwd=document.getElementById('adm-pwd').value;
+    try{ Load.show(); await api.post('/api/admin/login',{password:pwd});
+      document.getElementById('adm-pwd').value='';
+      Nav.show('admin'); await Admin.load();
+    }catch(e){ Toast.show(e.message,'error'); }finally{ Load.hide(); }
+  },
+
+  async logout(){ await api.post('/api/admin/logout').catch(()=>{}); Nav.show('home'); },
+
+  async loadEvent(){
+    try{
+      const ev=await api.get('/api/admin/event');
+      if(!ev)return;
+      document.getElementById('ev-id').value  = ev.id||'';
+      document.getElementById('ev-name').value= ev.name||'';
+      document.getElementById('ev-sd').value  = ev.start_date||'';
+      document.getElementById('ev-ed').value  = ev.end_date||'';
+      document.getElementById('ev-ts').value  = ev.slot_start_time||'09:00';
+      document.getElementById('ev-te').value  = ev.slot_end_time||'17:00';
+      document.getElementById('ev-dur').value = ev.slot_duration_minutes||30;
+      document.getElementById('ev-max').value = ev.max_slots_per_user||3;
+      document.querySelectorAll('.db-day').forEach(b=>b.classList.toggle('on',(ev.allowedDays||[]).includes(+b.dataset.d)));
+      document.getElementById('btn-open').style.display  = ev.is_open ? 'none':'';
+      document.getElementById('btn-close').style.display = ev.is_open ? '':'none';
+      const st=document.getElementById('ev-st');
+      st.classList.remove('hidden','st-open','st-closed');
+      st.classList.add(ev.is_open?'st-open':'st-closed');
+      st.textContent=ev.is_open?'✅ 開放報名中':'🔒 報名已關閉';
+      const sv=document.getElementById('s-status');
+      sv.textContent=ev.is_open?'開放中':'已關閉';
+      sv.className=ev.is_open?'sc-v open':'sc-v';
+    }catch{}
+    Admin.previewSlots();
+  },
+
+  previewSlots(){
+    const sl=genSlots(
+      document.getElementById('ev-ts').value,
+      document.getElementById('ev-te').value,
+      document.getElementById('ev-dur').value
+    );
+    document.getElementById('slot-preview').textContent=
+      sl.length?`預覽：共 ${sl.length} 個時段／天  (${sl[0].start} ～ ${sl[sl.length-1].end})`:'';
+  },
+
+  async saveEvent(){
+    const days=[...document.querySelectorAll('.db-day.on')].map(b=>+b.dataset.d);
+    if(!days.length){Toast.show('請至少勾選一天','error');return;}
+    const body={
+      id:    document.getElementById('ev-id').value||null,
+      name:  document.getElementById('ev-name').value.trim(),
+      startDate:    document.getElementById('ev-sd').value,
+      endDate:      document.getElementById('ev-ed').value,
+      slotStart:    document.getElementById('ev-ts').value,
+      slotEnd:      document.getElementById('ev-te').value,
+      slotDuration: +document.getElementById('ev-dur').value,
+      maxSlotsPerUser:+document.getElementById('ev-max').value,
+      allowedDays:days,
+    };
+    if(!body.name||!body.startDate||!body.endDate){Toast.show('請填寫所有必填欄位','error');return;}
+    try{
+      Load.show();
+      const r=await api.post('/api/admin/event',body);
+      document.getElementById('ev-id').value=r.id;
+      document.getElementById('btn-open').style.display ='';
+      document.getElementById('btn-close').style.display='none';
+      document.getElementById('ev-st').classList.remove('hidden');
+      Toast.show('活動設定已儲存','success');
+      await Admin.loadEvent();
+    }catch(e){Toast.show(e.message,'error');}finally{Load.hide();}
+  },
+
+  async toggleOpen(open){
+    const id=document.getElementById('ev-id').value;
+    if(!id){Toast.show('請先儲存活動設定','error');return;}
+    try{
+      Load.show();
+      await api.put('/api/admin/event/toggle',{id:+id,isOpen:open});
+      Toast.show(open?'✅ 報名已開放':'🔒 報名已關閉','success');
+      await Admin.loadEvent();
+    }catch(e){Toast.show(e.message,'error');}finally{Load.hide();}
+  },
+
+  async loadEmail(){
+    try{
+      const s=await api.get('/api/admin/email-settings');
+      if(!s)return;
+      document.getElementById('em-host').value =s.host||'';
+      document.getElementById('em-port').value =s.port||587;
+      document.getElementById('em-user').value =s.username||'';
+      document.getElementById('em-from').value =s.from_email||'';
+      document.getElementById('em-ssl').checked=!!s.enable_ssl;
+    }catch{}
+  },
+
+  async saveEmail(){
+    const body={
+      host:document.getElementById('em-host').value.trim(),
+      port:+document.getElementById('em-port').value,
+      username:document.getElementById('em-user').value.trim(),
+      password:document.getElementById('em-pass').value,
+      from:document.getElementById('em-from').value.trim(),
+      ssl:document.getElementById('em-ssl').checked,
+    };
+    try{Load.show();await api.put('/api/admin/email-settings',body);Toast.show('Email 設定已儲存','success');}
+    catch(e){Toast.show(e.message,'error');}finally{Load.hide();}
+  },
+
+  async testEmail(){
+    const btn=document.getElementById('btn-test'),res=document.getElementById('test-res');
+    btn.textContent='測試中...';btn.disabled=true;res.className='tr hidden';
+    try{
+      await api.post('/api/admin/email-test');
+      res.className='tr tr-ok';res.textContent='✅ 連線成功！';
+    }catch(e){
+      res.className='tr tr-fail';res.textContent=`❌ ${e.message}`;
+    }finally{
+      btn.textContent='連線測試';btn.disabled=false;res.classList.remove('hidden');
+    }
+  },
+
+  async loadBookings(){
+    const list=document.getElementById('bk-list');
+    try{
+      const data=await api.get('/api/admin/bookings');
+      document.getElementById('s-total').textContent=data.length;
+      document.getElementById('s-users').textContent=new Set(data.map(b=>b.email)).size;
+      if(!data.length){list.innerHTML='<div class="no-data">尚無任何預約紀錄</div>';return;}
+      const byU={};
+      data.forEach(b=>{if(!byU[b.email])byU[b.email]=[];byU[b.email].push(b);});
+      list.innerHTML=Object.entries(byU).map(([email,sl])=>`
+        <div class="bk-item">
+          <div class="bk-email">📧 ${email}<span style="color:#2d3f5a;font-weight:400">（${sl.length} 個時段）</span></div>
+          <div class="bk-slots">
+            ${[...sl].sort((a,b)=>String(a.booking_date).localeCompare(String(b.booking_date))||String(a.slot_start_time).localeCompare(String(b.slot_start_time)))
+              .map(s=>`<span class="slot-pill">${s.booking_date} ${String(s.slot_start_time).substring(0,5)}</span>`).join('')}
+          </div>
+        </div>`).join('');
+    }catch(e){list.innerHTML=`<div class="no-data">載入失敗：${e.message}</div>`;}
+  },
+};
+
+// Day picker click
+document.getElementById('dp').addEventListener('click',e=>{
+  const b=e.target.closest('.db-day');
+  if(b){b.classList.toggle('on');Admin.previewSlots();}
+});
+// Live slot preview
+document.querySelectorAll('#ev-ts,#ev-te,#ev-dur').forEach(el=>el.addEventListener('input',Admin.previewSlots));
+
+// ─── User ──────────────────────────────────────────────────────────────────────
+const User = {
+  async checkEvent(){
+    const info=document.getElementById('ev-info'),btn=document.getElementById('btn-code');
+    try{
+      // We check by just enabling it; server validates
+      info.innerHTML='請輸入您的 Email，系統將寄送一次性驗證碼';
+      btn.disabled=false;
+    }catch{info.innerHTML='<span style="color:#f59e0b">⚠️ 請確認活動是否開放</span>';btn.disabled=false;}
+  },
+
+  async reqCode(){
+    const email=document.getElementById('u-email').value.trim();
+    if(!email||!email.includes('@')){Toast.show('請輸入有效的 Email','error');return;}
+    try{
+      Load.show();
+      const r=await api.post('/api/user/request-code',{email});
+      S.userEmail=email;
+      document.getElementById('verify-email').textContent=email;
+      Nav.show('verify');
+      document.getElementById('code-inp').value='';
+      document.getElementById('code-inp').focus();
+      if(r.devCode)Toast.show(`[開發模式] 驗證碼：${r.devCode}`,'code');
+      else Toast.show('驗證碼已寄出，請查收 Email','success');
+    }catch(e){Toast.show(e.message,'error');}finally{Load.hide();}
+  },
+
+  async verify(){
+    const code=document.getElementById('code-inp').value.trim().toUpperCase();
+    if(code.length!==6){Toast.show('請輸入 6 位驗證碼','error');return;}
+    try{
+      Load.show();
+      await api.post('/api/user/verify',{email:S.userEmail,code});
+      await User.enterCal();
+    }catch(e){Toast.show(e.message,'error');}finally{Load.hide();}
+  },
+
+  async enterCal(){
+    try{
+      Load.show();
+      const ev=await api.get('/api/user/event');
+      if(!ev){Toast.show('目前沒有開放的活動','error');Nav.show('home');return;}
+      S.event=ev;
+      S.weekStart=monOf(ev.start_date);
+      document.getElementById('cal-name').textContent =ev.name;
+      document.getElementById('cal-range').textContent=`${ev.start_date} ～ ${ev.end_date}`;
+      document.getElementById('cal-umail').textContent=S.userEmail||'';
+      Nav.show('cal');
+      await Cal.render();
+    }catch(e){Toast.show(e.message,'error');Nav.show('home');}finally{Load.hide();}
+  },
+
+  async logout(){
+    await api.post('/api/user/logout').catch(()=>{});
+    S.userEmail=null;S.event=null;Nav.show('home');
+  },
+};
+
+// ─── Calendar ─────────────────────────────────────────────────────────────────
+const Cal = {
+  async render(){
+    const ev=S.event;if(!ev)return;
+    const weekEnd=addDays(S.weekStart,6);
+    document.getElementById('week-lbl').textContent=`${fmtDisp(S.weekStart)} — ${fmtDisp(weekEnd)}`;
+
+    const evStart=ev.start_date,evEnd=ev.end_date;
+    const inRange=weekEnd>=evStart&&S.weekStart<=evEnd;
+    const cont=document.getElementById('cal-grid');
+
+    if(!inRange){
+      cont.innerHTML='<div style="text-align:center;color:#2d3f5a;padding:80px;background:#0f172a;border-radius:16px;border:1px solid #1e293b;min-width:700px">本週不在活動範圍內，請切換週次</div>';
+      return;
+    }
+
+    let bk=[],myTotal=0;
+    try{
+      const r=await api.get(`/api/user/calendar?eventId=${ev.id}&weekStart=${S.weekStart}`);
+      bk=r.bookings||[];myTotal=r.myTotal||0;
+    }catch(e){Toast.show('載入預約資料失敗','error');}
+
+    // Update quota
+    const q=document.getElementById('cal-quota');
+    q.textContent=`${myTotal}/${ev.max_slots_per_user}`;
+    q.className=myTotal>=ev.max_slots_per_user?'quota-ct full':'quota-ct';
+    document.getElementById('quota-warn').style.display=myTotal>=ev.max_slots_per_user?'':'none';
+
+    // Build booking map
+    const bMap={};
+    bk.forEach(b=>{
+      const key=`${b.booking_date}|${String(b.slot_start_time).substring(0,5)}`;
+      bMap[key]={mine:!!b.is_mine,taken:!b.is_mine};
+    });
+
+    const wdates=Array.from({length:7},(_,i)=>addDays(S.weekStart,i));
+    const adDays=ev.allowedDays||[];
+    const slots=genSlots(ev.slot_start_time,ev.slot_end_time,ev.slot_duration_minutes);
+    const isValid=d=>d>=evStart&&d<=evEnd&&adDays.includes(dow(d));
+    const col=`56px repeat(7,1fr)`;
+
+    let h=`<div class="cgrid">`;
+    // Headers
+    h+=`<div class="day-hdr-row" style="grid-template-columns:${col}"><div style="border-right:1px solid #1e293b;padding:8px"></div>`;
+    wdates.forEach(d=>{
+      const valid=isValid(d),isT=d===TODAY;
+      h+=`<div class="dh-cell${isT?' today':''}${!valid?' off':''}">
+        <div class="dow">${DAYS_E[dow(d)]}</div>
+        <div class="dn">${fmtDisp(d)}</div>
+        ${isT?'<div class="tdot"></div>':''}
+      </div>`;
+    });
+    h+=`</div>`;
+
+    // Slot rows
+    h+=`<div class="time-col" style="max-height:calc(100vh - 258px)">`;
+    slots.forEach(slot=>{
+      h+=`<div class="slot-row" style="grid-template-columns:${col}"><div class="time-lbl">${slot.start}</div>`;
+      wdates.forEach(d=>{
+        if(!isValid(d)){h+=`<div class="sc2 off"></div>`;return;}
+        const key=`${d}|${slot.start}`,inf=bMap[key];
+        let cls='free',inner='';
+        if(inf?.mine) {cls='mine';inner='✓';}
+        else if(inf?.taken){cls='taken';inner='<span class="taken-lbl">已預約</span>';}
+        h+=`<div class="sc2 ${cls}" data-date="${d}" data-start="${slot.start}" data-end="${slot.end}" onclick="Cal.click(this)">${inner}</div>`;
+      });
+      h+=`</div>`;
+    });
+    h+=`</div></div>`;
+    cont.innerHTML=h;
+  },
+
+  async click(el){
+    const ev=S.event;if(!ev)return;
+    if(el.classList.contains('off')||el.classList.contains('taken'))return;
+    const {date,start,end}=el.dataset;
+    const isMine=el.classList.contains('mine');
+    try{
+      Load.show();
+      if(isMine){
+        await api.delete('/api/user/book',{eventId:ev.id,date,slotStart:start});
+        Toast.show('已取消該時段','info');
+      }else{
+        await api.post('/api/user/book',{eventId:ev.id,date,slotStart:start,slotEnd:end});
+        Toast.show('✅ 時段預約成功','success');
+      }
+      await Cal.render();
+    }catch(e){Toast.show(e.message,'error');}finally{Load.hide();}
+  },
+
+  async prev(){ S.weekStart=addDays(S.weekStart,-7); await Cal.render(); },
+  async next(){ S.weekStart=addDays(S.weekStart, 7); await Cal.render(); },
+};
+
+window.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+# 虛擬環境
+register/
+venv/
+__pycache__/
+*.pyc
+
+# 敏感設定
+.env
+
+# 資料庫（部署平台會自己建立）
+*.db
+*.db-shm
+*.db-wal

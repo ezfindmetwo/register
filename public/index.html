@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>排程預約系統</title>
+<style>
+/* ─── Variables ─────────────────────────────── */
+:root{
+  --bg:#f0f4f8;--s0:#fff;--s1:#f8fafc;--s2:#f1f5f9;
+  --bd:#dde3ec;--bd2:#e8edf4;
+  --t1:#0f172a;--t2:#334155;--t3:#64748b;--t4:#94a3b8;
+  --ac:#2563eb;--ac-d:#1d4ed8;--ac-bg:#eff6ff;--ac-tx:#1e40af;
+  --ok:#059669;--ok-bg:rgba(5,150,105,.08);--ok-bd:rgba(5,150,105,.3);--ok-tx:#065f46;
+  --er:#dc2626;--er-bg:rgba(220,38,38,.07);--er-bd:rgba(220,38,38,.3);--er-tx:#991b1b;
+  --warn:#d97706;
+  --sf-bg:rgba(217,119,6,.1);--sf-bd:rgba(180,83,9,.55);--sf-tx:#92400e;--sf-hv:rgba(217,119,6,.18);
+  --sm-bg:rgba(5,150,105,.1);--sm-bd:rgba(5,150,105,.65);--sm-tx:#065f46;--sm-hv:rgba(5,150,105,.06);
+  --st-bg:rgba(100,116,139,.08);--st-bd:rgba(100,116,139,.3);--st-tx:#94a3b8;
+  --sh:0 1px 6px rgba(15,23,42,.07);--sh2:0 4px 20px rgba(15,23,42,.1);
+}
+[data-theme=dark]{
+  --bg:#0d1424;--s0:#182033;--s1:#1e2d42;--s2:#243347;
+  --bd:#2e4060;--bd2:#233350;
+  --t1:#f1f5f9;--t2:#cbd5e1;--t3:#94a3b8;--t4:#64748b;
+  --ac:#3b82f6;--ac-d:#2563eb;--ac-bg:rgba(59,130,246,.12);--ac-tx:#93c5fd;
+  --ok:#10b981;--ok-bg:rgba(16,185,129,.1);--ok-bd:rgba(16,185,129,.35);--ok-tx:#34d399;
+  --er:#ef4444;--er-bg:rgba(239,68,68,.1);--er-bd:rgba(239,68,68,.3);--er-tx:#f87171;
+  --sf-bg:rgba(251,191,36,.13);--sf-bd:rgba(251,191,36,.7);--sf-tx:#fde047;--sf-hv:rgba(251,191,36,.22);
+  --sm-bg:rgba(16,185,129,.18);--sm-bd:rgba(16,185,129,.85);--sm-tx:#6ee7b7;--sm-hv:rgba(16,185,129,.1);
+  --st-bg:rgba(51,65,85,.4);--st-bd:rgba(100,116,139,.45);--st-tx:#475569;
+  --sh:0 2px 10px rgba(0,0,0,.35);--sh2:0 4px 24px rgba(0,0,0,.5);
+}
+
+/* ─── Reset ─────────────────────────────────── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{height:100%}
+body{min-height:100%;font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--t1);-webkit-font-smoothing:antialiased}
+button,input,select{font-family:inherit}
+a{color:inherit;text-decoration:none}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--bd);border-radius:3px}
+[data-theme=dark] input[type=date]::-webkit-calendar-picker-indicator,
+[data-theme=dark] input[type=time]::-webkit-calendar-picker-indicator{filter:invert(.5)}
+.hidden{display:none!important}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes slideR{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:none}}
+@keyframes spin{to{transform:rotate(360deg)}}
+.fade-up{animation:fadeUp .28s ease both}
+
+/* ─── Toast ─────────────────────────────────── */
+#toast{position:fixed;top:16px;right:16px;z-index:9999;pointer-events:none;display:flex;flex-direction:column;gap:8px;align-items:flex-end}
+.tmsg{padding:11px 18px;border-radius:10px;font-size:13px;font-weight:600;color:#fff;max-width:320px;line-height:1.5;animation:slideR .22s ease;box-shadow:0 4px 20px rgba(0,0,0,.25)}
+.ti{background:#2563eb}.ts{background:#059669}.te{background:#dc2626}.tk{background:#7c3aed}
+
+/* ─── Overlay ────────────────────────────────── */
+#ov{position:fixed;inset:0;background:rgba(13,20,36,.5);z-index:8888;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(2px)}
+[data-theme=light] #ov{background:rgba(240,244,248,.6)}
+.spin{width:36px;height:36px;border:3px solid var(--bd);border-top-color:var(--ac);border-radius:50%;animation:spin .7s linear infinite}
+
+/* ─── SVG Icons ──────────────────────────────── */
+.ico{display:inline-block;vertical-align:middle;flex-shrink:0;
+  width:1em;height:1em;fill:none;stroke:currentColor;
+  stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;overflow:visible}
+
+/* ─── Theme button ───────────────────────────── */
+.tbtn{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:20px;border:1px solid var(--bd);background:var(--s1);color:var(--t3);cursor:pointer;font-size:12px;font-weight:600;transition:border-color .2s,color .2s,background .2s;white-space:nowrap}
+.tbtn:hover{border-color:var(--ac);color:var(--ac)}
+
+/* ─── Shared layout ──────────────────────────── */
+/* Full-page centered card views */
+.page-center{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--bg)}
+.card{background:var(--s0);border:1px solid var(--bd);border-radius:18px;padding:36px;width:100%;max-width:400px;box-shadow:var(--sh2)}
+.card-ico{width:46px;height:46px;border-radius:12px;background:var(--ac-bg);color:var(--ac);display:flex;align-items:center;justify-content:center;font-size:22px;margin-bottom:14px}
+.card-ttl{font-size:22px;font-weight:800;color:var(--t1);letter-spacing:-.4px}
+.card-sub{color:var(--t3);font-size:13px;margin-top:5px;line-height:1.6}
+.back{display:inline-flex;align-items:center;gap:5px;color:var(--t3);background:none;border:none;cursor:pointer;font-size:13px;margin-bottom:22px;padding:0}
+.back:hover{color:var(--t1)}
+
+/* Shared top bar */
+.topbar{background:var(--s0);border-bottom:1px solid var(--bd);padding:11px 20px;display:flex;align-items:center;justify-content:space-between;min-height:52px;gap:12px;flex-shrink:0}
+.brand{display:flex;align-items:center;gap:9px;flex-shrink:0}
+.b-ico{width:30px;height:30px;border-radius:7px;background:var(--ac);color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.b-name{color:var(--t1);font-weight:700;font-size:15px}
+.b-tag{background:var(--ac-bg);color:var(--ac-tx);font-size:11px;padding:2px 8px;border-radius:16px;border:1px solid rgba(37,99,235,.18);white-space:nowrap}
+.tb-right{display:flex;align-items:center;gap:10px;flex-shrink:0}
+
+/* ─── Forms ──────────────────────────────────── */
+.fg{margin-bottom:13px}
+.fl{display:block;color:var(--t2);font-size:12px;font-weight:600;margin-bottom:4px;letter-spacing:.01em}
+.fi{width:100%;background:var(--s1);border:1px solid var(--bd);color:var(--t1);border-radius:8px;padding:9px 12px;font-size:14px;outline:none;transition:border-color .18s,box-shadow .18s}
+.fi:focus{border-color:var(--ac);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+.fi:disabled{opacity:.4;cursor:not-allowed}
+.fg2{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+.sp2{grid-column:1/-1}
+.cr{display:flex;align-items:center;gap:8px;margin:4px 0}
+.cr input{width:14px;height:14px;accent-color:var(--ac)}
+.cr label{color:var(--t2);font-size:13px;cursor:pointer}
+
+/* ─── Buttons ────────────────────────────────── */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 18px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;border:none;transition:background .18s,opacity .18s;white-space:nowrap}
+.btn-p{background:var(--ac);color:#fff}.btn-p:hover{background:var(--ac-d)}
+.btn-p:disabled{opacity:.45;cursor:not-allowed}
+.btn-g{background:var(--s1);color:var(--t2);border:1px solid var(--bd)}.btn-g:hover{border-color:var(--ac);color:var(--ac)}
+.btn-ok{background:#065f46;color:#fff}.btn-ok:hover{background:#047857}
+.btn-er{background:#7f1d1d;color:#fff}.btn-er:hover{background:#991b1b}
+.btn-full{width:100%;padding:11px}
+.btn-sm{padding:6px 13px;font-size:12px}
+.btn-xs{padding:4px 10px;font-size:11px;border-radius:6px}
+
+/* ─── Home ───────────────────────────────────── */
+#vh{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--bg);position:relative}
+.h-top{position:absolute;top:16px;right:20px}
+.h-wrap{width:100%;max-width:640px;text-align:center}
+.h-ico{width:56px;height:56px;border-radius:15px;background:var(--ac);color:#fff;display:flex;align-items:center;justify-content:center;font-size:26px;margin:0 auto 14px;box-shadow:0 4px 18px rgba(37,99,235,.35)}
+.h-ttl{font-size:38px;font-weight:900;color:var(--t1);letter-spacing:-1px}
+.h-sub{color:var(--t3);font-size:15px;margin-top:6px}
+.h-btns{display:flex;gap:16px;justify-content:center;margin-top:32px;flex-wrap:wrap}
+.hbtn{background:var(--s0);border:1px solid var(--bd);color:var(--t1);padding:22px 38px;border-radius:15px;cursor:pointer;min-width:140px;transition:all .2s;box-shadow:var(--sh)}
+.hbtn:hover{transform:translateY(-3px);box-shadow:var(--sh2)}
+.hbtn.hp{background:var(--ac-d);border-color:var(--ac);color:#fff;box-shadow:0 4px 16px rgba(37,99,235,.3)}
+.hbtn.hp:hover{background:var(--ac);box-shadow:0 8px 24px rgba(37,99,235,.4)}
+.hbtn-ico{width:42px;height:42px;border-radius:10px;background:var(--ac-bg);color:var(--ac);display:flex;align-items:center;justify-content:center;font-size:20px;margin:0 auto 9px}
+.hbtn.hp .hbtn-ico{background:rgba(255,255,255,.15);color:#fff}
+.hbtn-lbl{font-size:15px;font-weight:700}
+.hbtn-sub{font-size:11px;opacity:.55;margin-top:2px}
+.h-hint{color:var(--t4);font-size:11px;margin-top:18px}
+
+/* ─── Admin ──────────────────────────────────── */
+#va{background:var(--bg);min-height:100vh}
+.db-body{padding:20px 24px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:11px;max-width:600px;margin-bottom:18px}
+.stat{background:var(--s0);border:1px solid var(--bd);border-radius:11px;padding:14px;box-shadow:var(--sh)}
+.stat-ico{color:var(--t3);font-size:17px;margin-bottom:4px}
+.stat-lbl{color:var(--t3);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.stat-val{font-size:20px;font-weight:800;color:var(--t1);margin-top:3px}
+.stat-val.open{color:var(--ok)}
+.tabbar{display:inline-flex;background:var(--s0);border:1px solid var(--bd);border-radius:9px;padding:3px;gap:2px;margin-bottom:15px}
+.tabbtn{padding:7px 17px;border-radius:7px;border:none;cursor:pointer;font-size:12px;font-weight:700;background:transparent;color:var(--t3);transition:all .18s;display:flex;align-items:center;gap:5px;white-space:nowrap}
+.tabbtn.on{background:var(--ac);color:#fff}
+.tabbtn:not(.on):hover{background:var(--s1);color:var(--t1)}
+.panel{background:var(--s0);border:1px solid var(--bd);border-radius:14px;padding:24px;max-width:760px;box-shadow:var(--sh)}
+.panel h3{color:var(--t1);font-size:15px;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:7px}
+.day-picker{display:flex;gap:5px;flex-wrap:wrap;margin-top:4px}
+.dpk{width:37px;height:37px;border-radius:7px;border:1px solid var(--bd);background:var(--s1);color:var(--t3);font-size:13px;font-weight:700;cursor:pointer;transition:all .18s}
+.dpk.on{background:var(--ac-d);border-color:var(--ac);color:#fff}
+.mtabs{display:flex;gap:2px;background:var(--s1);border:1px solid var(--bd);border-radius:8px;padding:3px;width:fit-content;margin-bottom:14px}
+.mtab{padding:5px 16px;border-radius:6px;border:none;cursor:pointer;font-size:12px;font-weight:700;background:transparent;color:var(--t3);transition:all .18s}
+.mtab.on{background:var(--s0);color:var(--ac);box-shadow:var(--sh)}
+.mtab:not(.on):hover{color:var(--t1)}
+.pdt{width:100%;border-collapse:collapse;margin-top:6px}
+.pdt th{color:var(--t3);font-size:10px;font-weight:700;text-align:left;padding:5px 7px;border-bottom:1px solid var(--bd);text-transform:uppercase;letter-spacing:.04em}
+.pdt td{padding:4px 5px;vertical-align:middle}
+.pdt tr:not(:last-child) td{border-bottom:1px solid var(--bd2)}
+.pdt .fi{padding:5px 9px;font-size:13px}
+.tog{width:34px;height:19px;border-radius:19px;border:none;cursor:pointer;position:relative;transition:background .18s;flex-shrink:0}
+.tog.on{background:var(--ac)}.tog.off{background:var(--bd)}
+.tog::after{content:'';position:absolute;top:1.5px;left:1.5px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .18s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.tog.on::after{transform:translateX(15px)}
+.prev-pill{font-size:11px;color:var(--t3);background:var(--s1);border:1px solid var(--bd2);padding:2px 7px;border-radius:14px;white-space:nowrap}
+.bopen{display:inline-flex;align-items:center;gap:5px;background:var(--ok-bg);border:1px solid var(--ok-bd);color:var(--ok-tx);padding:6px 12px;border-radius:7px;font-size:12px;font-weight:600;margin-top:10px}
+.bclosed{display:inline-flex;align-items:center;gap:5px;background:var(--s1);border:1px solid var(--bd);color:var(--t3);padding:6px 12px;border-radius:7px;font-size:12px;font-weight:600;margin-top:10px}
+.rok{background:var(--ok-bg);border:1px solid var(--ok-bd);color:var(--ok-tx);padding:9px 13px;border-radius:7px;font-size:13px;margin-top:11px}
+.rfail{background:var(--er-bg);border:1px solid var(--er-bd);color:var(--er-tx);padding:11px 14px;border-radius:7px;font-size:13px;margin-top:11px;line-height:1.7}
+.bk-item{background:var(--s1);border:1px solid var(--bd);border-radius:9px;padding:12px;margin-bottom:8px}
+.bk-em{color:var(--ac);font-size:13px;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:5px}
+.bk-slots{display:flex;flex-wrap:wrap;gap:5px}
+.bk-pill{background:var(--ok-bg);border:1px solid var(--ok-bd);color:var(--ok-tx);font-size:11px;padding:3px 8px;border-radius:5px;font-family:'Courier New',monospace}
+.nodata{color:var(--t4);text-align:center;padding:36px;font-size:14px}
+.dom-box{background:var(--ac-bg);border:1px solid rgba(37,99,235,.22);border-radius:7px;padding:8px 11px;font-size:12px;color:var(--ac-tx);margin-top:9px;display:flex;align-items:center;gap:5px}
+.code-inp{width:100%;background:var(--s1);border:1px solid var(--bd);color:var(--t1);border-radius:10px;padding:14px;font-size:34px;font-family:'Courier New',monospace;letter-spacing:.35em;text-align:center;outline:none;transition:border-color .18s}
+.code-inp:focus{border-color:var(--ac);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+.divider{border:none;border-top:1px solid var(--bd);margin:16px 0}
+
+/* ══ Month Calendar ════════════════════════════ */
+#vmc{min-height:100vh;display:flex;flex-direction:column;background:var(--bg)}
+.mc-top{background:var(--s0);border-bottom:1px solid var(--bd);padding:11px 20px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;gap:12px;flex-wrap:wrap}
+.mc-ev-name{font-weight:700;font-size:14px;color:var(--t1)}
+.mc-ev-rng{font-size:11px;color:var(--t3);margin-top:1px}
+.mc-top-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mc-quota-txt{font-size:13px;color:var(--t2);white-space:nowrap}
+.mc-quota-txt strong{font-weight:700;color:var(--ok)}
+.mc-quota-txt strong.full{color:var(--warn)}
+.mc-body{flex:1;overflow-y:auto;padding:20px 16px}
+
+/* All-months outer */
+.months-outer{max-width:1080px;margin:0 auto}
+.months-legend{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;padding:10px 14px;background:var(--s0);border:1px solid var(--bd);border-radius:10px}
+.mleg{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--t3)}
+.mleg-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.mleg-mine{width:20px;height:20px;border-radius:50%;background:rgba(37,99,235,.12);border:1.5px solid var(--ac);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--ac);flex-shrink:0}
+[data-theme=dark] .mleg-mine{background:rgba(59,130,246,.2)}
+.months-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(265px,1fr));gap:14px}
+
+/* Mini month card */
+.mmc{background:var(--s0);border:1px solid var(--bd);border-radius:14px;padding:16px 14px;box-shadow:var(--sh)}
+.mmc-title{font-size:14px;font-weight:800;color:var(--t1);margin-bottom:10px;letter-spacing:-.2px}
+.mmc-dow{display:grid;grid-template-columns:repeat(7,1fr);margin-bottom:2px}
+.mmc-dow-c{text-align:center;font-size:10px;font-weight:700;color:var(--t4);padding:3px 0}
+.mmc-dow-c.we{color:var(--er);opacity:.8}
+.mmc-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px}
+.mmc-day{height:36px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:5px;cursor:default;transition:background .12s}
+.mmc-day.can{cursor:pointer}
+.mmc-day.can:hover{background:var(--s2)}
+.mmc-day.inactive{opacity:.15}
+.mmc-day.past{opacity:.55}
+.mmc-num{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;color:var(--t1)}
+.mmc-day.other .mmc-num{color:var(--t4)}
+.mmc-num.today{background:var(--ac);color:#fff;font-weight:700}
+.mmc-num.mybook{background:rgba(37,99,235,.13);color:var(--ac);font-weight:700;border:1.5px solid var(--ac)}
+[data-theme=dark] .mmc-num.mybook{background:rgba(59,130,246,.2)}
+.mmc-num.today.mybook{background:var(--ac);color:#fff;border-color:var(--ac)}
+.mmc-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.mmc-dot.avail{background:#22c55e}
+.mmc-dot.full{background:#ef4444}
+
+/* Booked email tag in day detail */
+.booker-em{font-size:11px;color:var(--t3);font-family:'Courier New',monospace;background:var(--s1);border:1px solid var(--bd);padding:2px 8px;border-radius:5px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Excluded date pills (admin) */
+.ex-pills{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;min-height:28px}
+.ex-pill{display:inline-flex;align-items:center;gap:6px;background:var(--er-bg);border:1px solid var(--er-bd);color:var(--er-tx);border-radius:7px;padding:4px 10px;font-size:12px}
+.ex-pill span.dt{font-family:'Courier New',monospace;font-weight:600}
+.ex-pill span.nt{color:var(--t3)}
+.ex-pill button{background:none;border:none;cursor:pointer;color:var(--er-tx);font-size:15px;line-height:1;padding:0;opacity:.7}
+.ex-pill button:hover{opacity:1}
+/* Holiday / excluded day in user calendar */
+.mmc-day.holiday{
+  background:rgba(255,182,193,.28);border-radius:5px;cursor:default;
+  position:relative
+}
+[data-theme=dark] .mmc-day.holiday{background:rgba(255,100,130,.14)}
+.mmc-day.holiday:hover{background:rgba(255,182,193,.48)}
+[data-theme=dark] .mmc-day.holiday:hover{background:rgba(255,100,130,.25)}
+.mmc-day.holiday .mmc-num{color:#be185d;font-weight:600}
+[data-theme=dark] .mmc-day.holiday .mmc-num{color:#fb7185}
+/* Tooltip */
+.mmc-day.holiday::after{
+  content:attr(data-holiday);
+  position:absolute;bottom:calc(100% + 6px);left:50%;
+  transform:translateX(-50%);
+  background:#1e293b;color:#f1f5f9;
+  padding:5px 10px;border-radius:7px;font-size:11px;font-weight:600;
+  white-space:nowrap;pointer-events:none;
+  opacity:0;transition:opacity .18s;z-index:50;
+  box-shadow:0 4px 12px rgba(0,0,0,.3)
+}
+[data-theme=light] .mmc-day.holiday::after{background:#0f172a}
+.mmc-day.holiday:hover::after{opacity:1}
+
+
+/* ══ Day Detail ════════════════════════════════ */
+#vdd{min-height:100vh;display:flex;flex-direction:column;background:var(--bg)}
+.dd-top{background:var(--s0);border-bottom:1px solid var(--bd);padding:11px 20px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;gap:12px;flex-wrap:wrap}
+.dd-date-ttl{font-size:15px;font-weight:700;color:var(--t1)}
+.dd-date-sub{font-size:11px;color:var(--t3);margin-top:1px}
+.dd-top-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.dd-qbar{background:var(--s1);border-bottom:1px solid var(--bd);padding:9px 20px;font-size:13px;color:var(--t2);display:flex;align-items:center;gap:7px;flex-shrink:0;flex-wrap:wrap}
+.dd-qbar strong{color:var(--ok);font-weight:700}
+.dd-qbar strong.full{color:var(--warn)}
+.dd-body{flex:1;overflow-y:auto;padding:20px 16px}
+.dd-card{background:var(--s0);border:1px solid var(--bd);border-radius:14px;max-width:500px;margin:0 auto;overflow:hidden;box-shadow:var(--sh)}
+.slot-row{display:flex;align-items:center;justify-content:space-between;padding:13px 18px;gap:12px;border-bottom:1px solid var(--bd2)}
+.slot-row:last-child{border-bottom:none}
+.slot-t{font-family:'Courier New',monospace;font-size:14px;font-weight:700;color:var(--t1)}
+.slot-d{font-size:11px;color:var(--t3);margin-top:2px}
+.slot-r{display:flex;align-items:center;gap:8px}
+.sp{font-size:11px;font-weight:600;padding:4px 10px;border-radius:16px;display:flex;align-items:center;gap:4px}
+.sp-f{background:var(--ok-bg);border:1px solid var(--ok-bd);color:var(--ok-tx)}
+.sp-m{background:var(--ac-bg);border:1px solid rgba(37,99,235,.28);color:var(--ac-tx)}
+.sp-t{background:var(--s1);border:1px solid var(--bd);color:var(--t4)}
+.slot-empty{color:var(--t4);text-align:center;padding:40px;font-size:14px}
+</style>
+</head>
+<body>
+<div id="toast"></div>
+<div id="ov" class="hidden"><div class="spin"></div></div>
+
+<!-- SVG Symbols -->
+<svg style="display:none">
+  <symbol id="ic-cal"     viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2.5"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+  <symbol id="ic-lock"    viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 118 0v4"/></symbol>
+  <symbol id="ic-user"    viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></symbol>
+  <symbol id="ic-mail"    viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 8l10 6 10-6"/></symbol>
+  <symbol id="ic-sun"     viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></symbol>
+  <symbol id="ic-moon"    viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></symbol>
+  <symbol id="ic-back"    viewBox="0 0 24 24"><path d="M19 12H5M12 5l-7 7 7 7"/></symbol>
+  <symbol id="ic-target"  viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="ic-list"    viewBox="0 0 24 24"><path d="M9 5h11M9 12h11M9 19h11M5 5h.01M5 12h.01M5 19h.01"/></symbol>
+  <symbol id="ic-chart"   viewBox="0 0 24 24"><rect x="3" y="12" width="4" height="9" rx="1"/><rect x="10" y="7" width="4" height="14" rx="1"/><rect x="17" y="3" width="4" height="18" rx="1"/></symbol>
+  <symbol id="ic-check"   viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></symbol>
+  <symbol id="ic-signal"  viewBox="0 0 24 24"><path d="M1.5 8.5a14 14 0 0121 0M5 12a10 10 0 0114 0M8.5 15.5a6 6 0 017 0M12 19h.01"/></symbol>
+  <symbol id="ic-left"    viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></symbol>
+  <symbol id="ic-right"   viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></symbol>
+  <symbol id="ic-clock"   viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></symbol>
+  <symbol id="ic-pin"     viewBox="0 0 24 24"><path d="M12 2a5 5 0 015 5c0 3.5-5 11-5 11S7 10.5 7 7a5 5 0 015-5z"/><circle cx="12" cy="7" r="2"/></symbol>
+  <symbol id="ic-x"       viewBox="0 0 24 24"><path d="M6 6l12 12M6 18L18 6"/></symbol>
+</svg>
+
+<!-- ═══ HOME ════════════════════════════════════ -->
+<div id="vh">
+  <div class="h-top"><button class="tbtn" onclick="Theme.toggle()"><svg class="ico" style="font-size:12px"><use href="#ic-moon"/></svg><span id="tbtn-lbl-h">夜色模式</span></button></div>
+  <div class="h-wrap fade-up">
+    <div class="h-ico"><svg class="ico" style="font-size:26px"><use href="#ic-cal"/></svg></div>
+    <div class="h-ttl">排程預約系統</div>
+    <div class="h-sub">Scheduling &amp; Registration Platform</div>
+    <div class="h-btns">
+      <button class="hbtn" onclick="App.goAdmin()">
+        <div class="hbtn-ico"><svg class="ico" style="font-size:19px"><use href="#ic-lock"/></svg></div>
+        <div class="hbtn-lbl">管理者</div><div class="hbtn-sub">Admin Portal</div>
+      </button>
+      <button class="hbtn hp" onclick="App.goUser()">
+        <div class="hbtn-ico"><svg class="ico" style="font-size:19px"><use href="#ic-user"/></svg></div>
+        <div class="hbtn-lbl">一般使用者</div><div class="hbtn-sub">User Registration</div>
+      </button>
+    </div>
+    <div class="h-hint">預設管理者密碼：admin123</div>
+  </div>
+</div>
+
+<!-- ═══ ADMIN LOGIN ════════════════════════════ -->
+<div id="val" class="page-center hidden">
+  <div class="card fade-up">
+    <button class="back" onclick="App.show('vh')"><svg class="ico" style="font-size:13px"><use href="#ic-back"/></svg> 返回首頁</button>
+    <div class="card-ico"><svg class="ico" style="font-size:21px"><use href="#ic-lock"/></svg></div>
+    <div class="card-ttl">管理者登入</div>
+    <div style="height:18px"></div>
+    <div class="fg"><label class="fl">管理者密碼</label>
+      <input class="fi" type="password" id="apwd" placeholder="請輸入密碼" onkeydown="if(event.key==='Enter')App.adminLogin()">
+    </div>
+    <button class="btn btn-p btn-full" onclick="App.adminLogin()"><svg class="ico"><use href="#ic-check"/></svg> 登入</button>
+  </div>
+</div>
+
+<!-- ═══ ADMIN DASHBOARD ════════════════════════ -->
+<div id="va" class="hidden">
+  <div class="topbar">
+    <div class="brand">
+      <div class="b-ico"><svg class="ico" style="font-size:14px"><use href="#ic-cal"/></svg></div>
+      <span class="b-name">排程預約系統</span><span class="b-tag">管理後台</span>
+    </div>
+    <div class="tb-right">
+      <button class="tbtn" onclick="Theme.toggle()"><svg class="ico" style="font-size:12px"><use href="#ic-moon"/></svg><span class="tl">夜色模式</span></button>
+      <button class="btn btn-g btn-sm" onclick="Admin.logout()">登出</button>
+    </div>
+  </div>
+  <div class="db-body">
+    <div class="stats">
+      <div class="stat"><div class="stat-ico"><svg class="ico"><use href="#ic-chart"/></svg></div><div class="stat-lbl">總預約數</div><div class="stat-val" id="s-tot">—</div></div>
+      <div class="stat"><div class="stat-ico"><svg class="ico"><use href="#ic-user"/></svg></div><div class="stat-lbl">已報名人數</div><div class="stat-val" id="s-usr">—</div></div>
+      <div class="stat"><div class="stat-ico"><svg class="ico"><use href="#ic-target"/></svg></div><div class="stat-lbl">活動狀態</div><div class="stat-val" id="s-sts">—</div></div>
+    </div>
+    <div class="tabbar">
+      <button class="tabbtn on" onclick="Admin.tab('ev',this)"><svg class="ico" style="font-size:13px"><use href="#ic-target"/></svg> 活動設定</button>
+      <button class="tabbtn" onclick="Admin.tab('em',this)"><svg class="ico" style="font-size:13px"><use href="#ic-mail"/></svg> Email 設定</button>
+      <button class="tabbtn" onclick="Admin.tab('bk',this)"><svg class="ico" style="font-size:13px"><use href="#ic-list"/></svg> 預約清單</button>
+    </div>
+    <!-- Event -->
+    <div class="panel" id="tab-ev">
+      <h3><svg class="ico" style="font-size:15px"><use href="#ic-target"/></svg> 活動設定</h3>
+      <input type="hidden" id="ev-id">
+      <div class="fg"><label class="fl">活動名稱</label><input class="fi" id="ev-name" placeholder="例：2025 年健康檢查預約"></div>
+      <div class="fg2">
+        <div class="fg"><label class="fl">開始日期</label><input class="fi" type="date" id="ev-s"></div>
+        <div class="fg"><label class="fl">結束日期</label><input class="fi" type="date" id="ev-e"></div>
+        <div class="fg"><label class="fl">每人最多時段數</label><input class="fi" type="number" id="ev-max" value="3" min="1" max="100"></div>
+      </div>
+      <hr class="divider">
+      <div style="margin-bottom:12px">
+        <label class="fl" style="margin-bottom:7px">時段設定模式</label>
+        <div class="mtabs">
+          <button class="mtab on" id="mt-uniform" onclick="Admin.setMode('uniform',this)">統一時段</button>
+          <button class="mtab" id="mt-perday" onclick="Admin.setMode('per_day',this)">個別設定</button>
+        </div>
+        <div id="m-hint" style="color:var(--t3);font-size:12px;margin-top:3px">所有開放日使用相同時段設定</div>
+      </div>
+      <div id="m-uniform">
+        <div class="fg"><label class="fl">開放星期</label>
+          <div class="day-picker" id="dpk-u">
+            <button class="dpk" data-d="0" onclick="Admin.toggleDU(this)">日</button>
+            <button class="dpk on" data-d="1" onclick="Admin.toggleDU(this)">一</button>
+            <button class="dpk on" data-d="2" onclick="Admin.toggleDU(this)">二</button>
+            <button class="dpk on" data-d="3" onclick="Admin.toggleDU(this)">三</button>
+            <button class="dpk on" data-d="4" onclick="Admin.toggleDU(this)">四</button>
+            <button class="dpk on" data-d="5" onclick="Admin.toggleDU(this)">五</button>
+            <button class="dpk" data-d="6" onclick="Admin.toggleDU(this)">六</button>
+          </div>
+        </div>
+        <div class="fg2">
+          <div class="fg"><label class="fl">開始時間</label><input class="fi" type="time" id="u-ts" value="09:00" oninput="Admin.uPrev()"></div>
+          <div class="fg"><label class="fl">結束時間</label><input class="fi" type="time" id="u-te" value="17:00" oninput="Admin.uPrev()"></div>
+          <div class="fg"><label class="fl">時段長度（分鐘）</label><input class="fi" type="number" id="u-dur" value="30" min="5" max="480" step="5" oninput="Admin.uPrev()"></div>
+          <div class="fg" style="display:flex;align-items:flex-end"><div id="u-prev" style="padding:9px 0;color:var(--t3);font-size:12px"></div></div>
+        </div>
+      </div>
+      <div id="m-perday" class="hidden">
+        <p style="color:var(--t3);font-size:12px;margin-bottom:9px">勾選要開放的星期，並分別設定時段。</p>
+        <table class="pdt">
+          <thead><tr>
+            <th style="width:38px">開放</th><th style="width:50px">星期</th>
+            <th>開始</th><th>結束</th><th style="width:90px">時段(分)</th><th>預覽</th>
+          </tr></thead>
+          <tbody id="pd-body"></tbody>
+        </table>
+      </div>
+      <hr class="divider">
+      <div class="fg">
+        <label class="fl">排除日期（假日 / 特殊休假）</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+          <input class="fi" type="date" id="ex-date" style="width:170px">
+          <input class="fi" id="ex-note" placeholder="假日名稱（顯示於日曆 tooltip）例：清明節" style="flex:1;min-width:200px">
+          <button class="btn btn-ghost btn-sm" onclick="Admin.addExDate()">+ 新增</button>
+        </div>
+        <div class="ex-pills" id="ex-pills"><span style="color:var(--t4);font-size:12px">尚未設定排除日期</span></div>
+      </div>
+      <hr class="divider">
+      <div style="display:flex;gap:9px;flex-wrap:wrap">
+        <button class="btn btn-p" onclick="Admin.saveEv()"><svg class="ico"><use href="#ic-check"/></svg> 儲存設定</button>
+        <button class="btn btn-ok hidden" id="btn-open" onclick="Admin.toggleOpen(true)">開放報名</button>
+        <button class="btn btn-er hidden" id="btn-close" onclick="Admin.toggleOpen(false)">關閉報名</button>
+      </div>
+      <div class="hidden" id="ev-st"></div>
+    </div>
+    <!-- Email -->
+    <div class="panel hidden" id="tab-em">
+      <h3><svg class="ico" style="font-size:15px"><use href="#ic-mail"/></svg> Email 伺服器設定</h3>
+      <div class="fg2">
+        <div class="fg"><label class="fl">SMTP Host</label><input class="fi" id="em-h" placeholder="smtp.gmail.com"></div>
+        <div class="fg"><label class="fl">Port</label><input class="fi" type="number" id="em-p" value="587"></div>
+        <div class="fg"><label class="fl">帳號</label><input class="fi" id="em-u" placeholder="user@example.com"></div>
+        <div class="fg"><label class="fl">密碼
+            <span style="font-weight:400;color:var(--t4);font-size:10px;margin-left:6px">Gmail 請使用「應用程式密碼」而非帳號密碼</span>
+          </label><input class="fi" type="password" id="em-pw" placeholder="（已儲存—如需更改才重新輸入）"></div>
+        <div class="fg sp2"><label class="fl">寄件人 Email</label><input class="fi" id="em-f" placeholder="noreply@example.com"></div>
+        <div class="fg sp2"><div class="cr"><input type="checkbox" id="em-ssl" checked><label for="em-ssl">啟用 SSL / STARTTLS</label></div></div>
+      </div>
+      <div class="fg"><label class="fl">發信測試 — 收件人 Email</label>
+          <input class="fi" id="em-to" type="email" placeholder="輸入要接收測試信的 Email 地址">
+        </div>
+        <div style="display:flex;gap:9px;margin-top:4px;flex-wrap:wrap">
+          <button class="btn btn-p" onclick="Admin.saveEm()">儲存設定</button>
+          <button class="btn btn-g" id="btn-test" onclick="Admin.testEm()"><svg class="ico"><use href="#ic-signal"/></svg> 發信測試</button>
+        </div>
+        <div id="test-res" class="hidden"></div>
+    </div>
+    <!-- Bookings -->
+    <div class="panel hidden" id="tab-bk">
+      <h3><svg class="ico" style="font-size:15px"><use href="#ic-list"/></svg> 預約清單</h3>
+      <div id="bk-list"><div class="nodata">載入中…</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ USER EMAIL ════════════════════════════ -->
+<div id="vue" class="page-center hidden">
+  <div class="card fade-up">
+    <button class="back" onclick="App.show('vh')"><svg class="ico" style="font-size:13px"><use href="#ic-back"/></svg> 返回首頁</button>
+    <div class="card-ico"><svg class="ico" style="font-size:21px"><use href="#ic-mail"/></svg></div>
+    <div class="card-ttl">輸入 Email</div>
+    <div class="card-sub" id="ev-info" style="margin-top:5px;margin-bottom:16px">正在載入活動資訊…</div>
+    <div class="fg"><label class="fl">Email 地址</label>
+      <input class="fi" type="email" id="u-email" placeholder="your@email.com" onkeydown="if(event.key==='Enter')User.sendCode()">
+    </div>
+    <button class="btn btn-p btn-full" id="btn-send" onclick="User.sendCode()" disabled><svg class="ico"><use href="#ic-mail"/></svg> 發送驗證碼</button>
+  </div>
+</div>
+
+<!-- ═══ USER VERIFY ═══════════════════════════ -->
+<div id="vvf" class="page-center hidden">
+  <div class="card fade-up">
+    <button class="back" onclick="App.show('vue')"><svg class="ico" style="font-size:13px"><use href="#ic-back"/></svg> 返回</button>
+    <div class="card-ico"><svg class="ico" style="font-size:21px"><use href="#ic-clock"/></svg></div>
+    <div class="card-ttl">輸入驗證碼</div>
+    <div class="card-sub" style="margin-top:5px;margin-bottom:16px">
+      已寄送 6 位驗證碼至<br><strong id="v-email" style="color:var(--ac)"></strong><br><span style="font-size:12px">（有效期 10 分鐘）</span>
+    </div>
+    <div class="fg">
+      <input class="code-inp" id="v-code" type="text" placeholder="A1B2C3" maxlength="6" oninput="this.value=this.value.toUpperCase()" onkeydown="if(event.key==='Enter')User.verify()">
+    </div>
+    <button class="btn btn-p btn-full" onclick="User.verify()">驗證並進入系統</button>
+  </div>
+</div>
+
+<!-- ═══ MONTH CALENDAR ════════════════════════ -->
+<div id="vmc" class="hidden">
+  <div class="mc-top">
+    <div>
+      <div class="mc-ev-name" id="mc-ev-name">活動名稱</div>
+      <div class="mc-ev-rng" id="mc-ev-rng"></div>
+    </div>
+    <div class="mc-top-right">
+      <div class="mc-quota-txt">已選：<strong id="mc-q">0</strong> / <span id="mc-qmax">3</span> 個時段
+        <span id="mc-qwarn" style="color:var(--warn);font-size:11px;display:none">（已達上限）</span>
+      </div>
+      <span style="color:var(--t3);font-size:12px" id="mc-email"></span>
+      <button class="tbtn" onclick="Theme.toggle()"><svg class="ico" style="font-size:12px"><use href="#ic-moon"/></svg><span class="tl">夜色模式</span></button>
+      <button class="btn btn-g btn-sm" onclick="User.logout()">登出</button>
+    </div>
+  </div>
+  <!-- Body: all months rendered by JS -->
+  <div class="mc-body" id="mc-body"></div>
+</div>
+
+<!-- ═══ DAY DETAIL ════════════════════════════ -->
+<div id="vdd" class="hidden">
+  <div class="dd-top">
+    <div style="display:flex;align-items:center;gap:11px">
+      <button class="back" style="margin:0" onclick="App.show('vmc');MC.refreshQ()">
+        <svg class="ico" style="font-size:13px"><use href="#ic-back"/></svg> 返回日曆
+      </button>
+      <div>
+        <div class="dd-date-ttl" id="dd-ttl"></div>
+        <div class="dd-date-sub" id="dd-sub"></div>
+      </div>
+    </div>
+    <div class="dd-top-right">
+      <span style="color:var(--t3);font-size:12px" id="dd-email"></span>
+      <button class="btn btn-g btn-sm" onclick="User.logout()">登出</button>
+    </div>
+  </div>
+  <div class="dd-qbar">
+    <svg class="ico" style="font-size:13px;color:var(--t3)"><use href="#ic-clock"/></svg>
+    本活動已選 <strong id="dd-q">0</strong> / <span id="dd-qmax">3</span> 個時段
+    <span id="dd-qwarn" style="color:var(--warn);font-size:12px;display:none">（已達上限，取消後可重新選取）</span>
+  </div>
+  <div class="dd-body">
+    <div class="dd-card" id="dd-slots"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════ JAVASCRIPT ══════════════════════════════ -->
+<script>
+'use strict';
+const ico = id => `<svg class="ico"><use href="#${id}"/></svg>`;
+
+/* ── Theme ─────────────────────────────── */
+const Theme = {
+  apply(m){
+    document.documentElement.setAttribute('data-theme',m);
+    localStorage.setItem('theme',m);
+    const d=m==='dark',icon=d?'ic-sun':'ic-moon',lbl=d?'白天模式':'夜色模式';
+    document.querySelectorAll('.tbtn').forEach(b=>{
+      const sv=b.querySelector('svg use');if(sv)sv.setAttribute('href','#'+icon);
+      const sp=b.querySelector('span.tl');if(sp)sp.textContent=lbl;
+    });
+  },
+  toggle(){Theme.apply(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark');},
+  init(){Theme.apply(localStorage.getItem('theme')||'light');}
+};
+
+/* ── Utils ──────────────────────────────── */
+const pad=n=>String(n).padStart(2,'0');
+const TODAY=(()=>{const d=new Date();return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;})();
+const toMin=t=>{const[h,m]=t.split(':').map(Number);return h*60+m;};
+const frMin=m=>`${pad(Math.floor(m/60))}:${pad(m%60)}`;
+const DZH=['日','一','二','三','四','五','六'];
+const MON=['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+function genSlots(s,e,dur){
+  if(!s||!e||!dur)return[];
+  let c=toMin(s);const f=toMin(e),r=[];
+  while(c+Number(dur)<=f){const x=frMin(c);c+=Number(dur);r.push({start:x,end:frMin(c)});}
+  return r;
+}
+
+/* ── API ────────────────────────────────── */
+const api={
+  async req(m,u,b){
+    const o={method:m,headers:{'Content-Type':'application/json'}};if(b)o.body=JSON.stringify(b);
+    const r=await fetch(u,o);const d=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(d.error||'伺服器錯誤');return d;
+  },
+  get:u=>api.req('GET',u),post:(u,b)=>api.req('POST',u,b),
+  put:(u,b)=>api.req('PUT',u,b),del:(u,b)=>api.req('DELETE',u,b),
+};
+const Toast={show(msg,t='i'){const e=document.createElement('div');e.className='tmsg t'+t;e.textContent=msg;document.getElementById('toast').appendChild(e);setTimeout(()=>e.remove(),5000);}};
+const L={show(){document.getElementById('ov').classList.remove('hidden');},hide(){document.getElementById('ov').classList.add('hidden');}};
+
+/* ── State ──────────────────────────────── */
+const VIEWS=['vh','val','va','vue','vvf','vmc','vdd'];
+const S={email:null,event:null,allowedDomains:[],myTotal:0};
+
+/* ── App ────────────────────────────────── */
+const App={
+  show(id){VIEWS.forEach(v=>document.getElementById(v).classList.add('hidden'));document.getElementById(id).classList.remove('hidden');},
+  async init(){
+    Theme.init();
+    try{const st=await api.get('/api/auth/status');if(st.is_admin){App.show('va');await Admin.load();return;}if(st.user_email){S.email=st.user_email;await User.enterCal();return;}}catch{}
+    App.show('vh');
+  },
+  goAdmin(){App.show('val');document.getElementById('apwd').focus();},
+  goUser(){App.show('vue');User.checkEvent();},
+  async adminLogin(){
+    const pwd=document.getElementById('apwd').value;
+    try{L.show();await api.post('/api/admin/login',{password:pwd});document.getElementById('apwd').value='';App.show('va');await Admin.load();}
+    catch(e){Toast.show(e.message,'e');}finally{L.hide();}
+  },
+};
+
+/* ── Admin ──────────────────────────────── */
+const Admin={
+  mode:'uniform',
+  excludedDates:[],   // [{date:'2026-04-04', note:'清明節'}, ...]
+
+  addExDate(){
+    const date=document.getElementById('ex-date').value;
+    const note=document.getElementById('ex-note').value.trim();
+    if(!date){Toast.show('請選擇日期','e');return;}
+    if(Admin.excludedDates.find(d=>d.date===date)){Toast.show('此日期已在排除清單中','e');return;}
+    Admin.excludedDates.push({date,note});
+    Admin.excludedDates.sort((a,b)=>a.date.localeCompare(b.date));
+    Admin.renderExDates();
+    document.getElementById('ex-date').value='';
+    document.getElementById('ex-note').value='';
+  },
+  removeExDate(date){
+    Admin.excludedDates=Admin.excludedDates.filter(d=>d.date!==date);
+    Admin.renderExDates();
+  },
+  renderExDates(){
+    const el=document.getElementById('ex-pills');
+    if(!el)return;
+    if(!Admin.excludedDates.length){el.innerHTML='<span style="color:var(--t4);font-size:12px">尚未設定排除日期</span>';return;}
+    el.innerHTML=Admin.excludedDates.map(({date,note})=>`
+      <div class="ex-pill">
+        <span class="dt">${date}</span>
+        ${note?`<span class="nt">${note}</span>`:''}
+        <button onclick="Admin.removeExDate('${date}')" title="移除">×</button>
+      </div>`).join('');
+  },
+  async load(){await Promise.all([Admin.loadEv(),Admin.loadBk(),Admin.loadEm()]);},
+  tab(n,btn){
+    ['ev','em','bk'].forEach(t=>document.getElementById('tab-'+t).classList.add('hidden'));
+    document.getElementById('tab-'+n).classList.remove('hidden');
+    document.querySelectorAll('.tabbtn').forEach(b=>b.classList.remove('on'));btn.classList.add('on');
+    if(n==='bk')Admin.loadBk();
+  },
+  async loadEv(){
+    try{
+      const ev=await api.get('/api/admin/event');if(!ev){Admin.buildPD([]);return;}
+      document.getElementById('ev-id').value=ev.id;
+      document.getElementById('ev-name').value=ev.name||'';
+      document.getElementById('ev-s').value=(ev.start_date||'').substring(0,10);
+      document.getElementById('ev-e').value=(ev.end_date||'').substring(0,10);
+      document.getElementById('ev-max').value=ev.max_slots_per_user||3;
+      const mode=ev.schedule_mode||'uniform';Admin.setMode(mode,document.getElementById('mt-'+mode));
+      if(mode==='uniform'){const ds=ev.day_schedules||[];const f=ds[0];if(f){document.getElementById('u-ts').value=f.slot_start_time||'09:00';document.getElementById('u-te').value=f.slot_end_time||'17:00';document.getElementById('u-dur').value=f.slot_duration||30;}const al=new Set(ev.allowed_days||[]);document.querySelectorAll('#dpk-u .dpk').forEach(b=>b.classList.toggle('on',al.has(+b.dataset.d)));}
+      Admin.buildPD(ev.day_schedules||[]);Admin.uPrev();
+      Admin.excludedDates=(ev.excluded_dates||[]).map(d=>({date:d.excluded_date,note:d.note||''}));
+      Admin.renderExDates();
+      document.getElementById('btn-open').classList.toggle('hidden',!!ev.is_open);
+      document.getElementById('btn-close').classList.toggle('hidden',!ev.is_open);
+      const st=document.getElementById('ev-st');st.classList.remove('hidden');
+      if(ev.is_open){st.className='bopen';st.textContent='報名開放中';}else{st.className='bclosed';st.textContent='報名已關閉';}
+      document.getElementById('s-sts').textContent=ev.is_open?'開放中':'已關閉';
+      document.getElementById('s-sts').className=ev.is_open?'stat-val open':'stat-val';
+    }catch{Toast.show('載入活動失敗','e');}
+  },
+  setMode(m,btn){
+    Admin.mode=m;document.querySelectorAll('.mtab').forEach(b=>b.classList.remove('on'));if(btn)btn.classList.add('on');
+    document.getElementById('m-uniform').classList.toggle('hidden',m!=='uniform');
+    document.getElementById('m-perday').classList.toggle('hidden',m!=='per_day');
+    document.getElementById('m-hint').textContent=m==='uniform'?'所有開放日使用相同時段設定':'針對每週各天分別設定時段';
+  },
+  toggleDU(btn){btn.classList.toggle('on');Admin.uPrev();},
+  uPrev(){const s=genSlots(document.getElementById('u-ts').value,document.getElementById('u-te').value,document.getElementById('u-dur').value);document.getElementById('u-prev').textContent=s.length?`共 ${s.length} 個時段 / 天`:'';},
+  buildPD(ex){
+    const mp={};(ex||[]).forEach(d=>mp[d.day_of_week]=d);
+    const tb=document.getElementById('pd-body');tb.innerHTML='';
+    for(let d=0;d<7;d++){
+      const ds=mp[d]||{slot_start_time:'09:00',slot_end_time:'17:00',slot_duration:30};const en=d in mp;
+      const tr=document.createElement('tr');tr.dataset.dow=d;
+      tr.innerHTML=`<td><button class="tog ${en?'on':'off'}" data-dow="${d}" onclick="Admin.togPD(this)"></button></td>
+        <td style="color:var(--t2);font-weight:600;font-size:13px;white-space:nowrap">週${DZH[d]}</td>
+        <td><input class="fi pd-ts" type="time" value="${ds.slot_start_time}" ${en?'':'disabled'} oninput="Admin.pdPrev(${d})"></td>
+        <td><input class="fi pd-te" type="time" value="${ds.slot_end_time}" ${en?'':'disabled'} oninput="Admin.pdPrev(${d})"></td>
+        <td><input class="fi pd-dur" type="number" value="${ds.slot_duration}" min="5" max="480" step="5" ${en?'':'disabled'} oninput="Admin.pdPrev(${d})" style="width:76px"></td>
+        <td><span class="prev-pill" id="pdp-${d}"></span></td>`;
+      tb.appendChild(tr);Admin.pdPrev(d);
+    }
+  },
+  togPD(btn){const d=+btn.dataset.dow;const on=btn.classList.toggle('on');btn.classList.toggle('off',!on);document.querySelector(`#pd-body tr[data-dow="${d}"]`).querySelectorAll('input').forEach(i=>i.disabled=!on);Admin.pdPrev(d);},
+  pdPrev(d){const tr=document.querySelector(`#pd-body tr[data-dow="${d}"]`);if(!tr)return;const on=tr.querySelector('.tog').classList.contains('on');const el=document.getElementById('pdp-'+d);if(!on){el.textContent='';return;}const n=genSlots(tr.querySelector('.pd-ts').value,tr.querySelector('.pd-te').value,tr.querySelector('.pd-dur').value).length;el.textContent=n?`${n} 個時段`:'';},
+  async loadEm(){try{const s=await api.get('/api/admin/email-settings');if(s){document.getElementById('em-h').value=s.host||'';document.getElementById('em-p').value=s.port||587;document.getElementById('em-u').value=s.username||'';document.getElementById('em-f').value=s.from_email||'';document.getElementById('em-ssl').checked=!!s.use_ssl;
+      // 密碼欄不預填（安全考量），但顯示「已儲存」提示
+      const pwEl=document.getElementById('em-pw');
+      if(s.has_password){pwEl.placeholder='（密碼已儲存—如需更改才重新輸入）';}
+    }}catch{}},
+  async loadBk(){
+    const list=document.getElementById('bk-list');
+    try{const data=await api.get('/api/admin/bookings');document.getElementById('s-tot').textContent=data.length;document.getElementById('s-usr').textContent=new Set(data.map(b=>b.email)).size;
+    if(!data.length){list.innerHTML='<div class="nodata">尚無任何預約紀錄</div>';return;}
+    const by={};data.forEach(b=>{if(!by[b.email])by[b.email]=[];by[b.email].push(b);});
+    list.innerHTML=Object.entries(by).map(([em,sl])=>`<div class="bk-item"><div class="bk-em">${ico('ic-mail')} ${em} <span style="color:var(--t4);font-weight:400">（${sl.length} 個）</span></div><div class="bk-slots">${sl.sort((a,b)=>a.booking_date.localeCompare(b.booking_date)||a.slot_start_time.localeCompare(b.slot_start_time)).map(s=>`<span class="bk-pill">${s.booking_date.substring(0,10)} ${String(s.slot_start_time).substring(0,5)}</span>`).join('')}</div></div>`).join('');}
+    catch(e){list.innerHTML=`<div class="nodata">載入失敗：${e.message}</div>`;}
+  },
+  async saveEv(){
+    const name=document.getElementById('ev-name').value.trim(),sd=document.getElementById('ev-s').value,ed=document.getElementById('ev-e').value,mx=+document.getElementById('ev-max').value;
+    if(!name||!sd||!ed){Toast.show('請填寫活動名稱及日期','e');return;}
+    let ds=[],ss='09:00',se='17:00',sdur=30;
+    if(Admin.mode==='uniform'){ss=document.getElementById('u-ts').value;se=document.getElementById('u-te').value;sdur=+document.getElementById('u-dur').value;const days=[...document.querySelectorAll('#dpk-u .dpk.on')].map(b=>+b.dataset.d);if(!days.length){Toast.show('請至少選擇一個開放日','e');return;}ds=days.map(d=>({dayOfWeek:d,slotStart:ss,slotEnd:se,slotDuration:sdur}));}
+    else{document.querySelectorAll('#pd-body tr').forEach(tr=>{if(tr.querySelector('.tog').classList.contains('on'))ds.push({dayOfWeek:+tr.dataset.dow,slotStart:tr.querySelector('.pd-ts').value,slotEnd:tr.querySelector('.pd-te').value,slotDuration:+tr.querySelector('.pd-dur').value});});if(!ds.length){Toast.show('請至少啟用一天','e');return;}}
+    try{L.show();const r=await api.post('/api/admin/event',{id:document.getElementById('ev-id').value||null,name,startDate:sd,endDate:ed,scheduleMode:Admin.mode,slotStart:ss,slotEnd:se,slotDuration:sdur,maxSlotsPerUser:mx,daySchedules:ds,excludedDates:Admin.excludedDates.map(d=>({date:d.date,note:d.note}))});document.getElementById('ev-id').value=r.id;document.getElementById('btn-open').classList.remove('hidden');document.getElementById('btn-close').classList.add('hidden');const st=document.getElementById('ev-st');st.classList.remove('hidden');st.className='bclosed';st.textContent='報名已關閉';Toast.show('活動設定已儲存','s');await Admin.loadEv();}
+    catch(e){Toast.show(e.message,'e');}finally{L.hide();}
+  },
+  async toggleOpen(o){const id=document.getElementById('ev-id').value;if(!id){Toast.show('請先儲存活動設定','e');return;}try{L.show();await api.put('/api/admin/event/toggle',{id:+id,isOpen:o});Toast.show(o?'報名已開放':'報名已關閉','s');await Admin.loadEv();}catch(e){Toast.show(e.message,'e');}finally{L.hide();}},
+  async saveEm(){const b={host:document.getElementById('em-h').value.trim(),port:+document.getElementById('em-p').value,username:document.getElementById('em-u').value.trim(),password:document.getElementById('em-pw').value,from:document.getElementById('em-f').value.trim(),ssl:document.getElementById('em-ssl').checked};try{L.show();await api.put('/api/admin/email-settings',b);Toast.show('Email 設定已儲存','s');}catch(e){Toast.show(e.message,'e');}finally{L.hide();}},
+  async testEm(){
+    const btn=document.getElementById('btn-test'),res=document.getElementById('test-res');
+    const to=document.getElementById('em-to').value.trim();
+    if(!to){Toast.show('請填寫測試收件人 Email','e');return;}
+    btn.innerHTML=`${ico('ic-signal')} 發送中…`;btn.disabled=true;res.className='hidden';
+    // 直接傳入目前表單值，不需先儲存
+    const body={
+      host:document.getElementById('em-h').value.trim(),
+      port:+document.getElementById('em-p').value,
+      username:document.getElementById('em-u').value.trim(),
+      password:document.getElementById('em-pw').value,
+      from:document.getElementById('em-f').value.trim(),
+      ssl:document.getElementById('em-ssl').checked,
+      to,
+    };
+    try{await api.post('/api/admin/email-test',body);res.className='rok';res.innerHTML=`測試信已成功寄出至 <strong>${to}</strong>，請查收信箱確認。`;}
+    catch(e){res.className='rfail';res.innerHTML=e.message.replace(/\\n/g,'<br>');}
+    finally{btn.innerHTML=`${ico('ic-signal')} 發信測試`;btn.disabled=false;res.classList.remove('hidden');}
+  },
+  async logout(){await api.post('/api/admin/logout').catch(()=>{});App.show('vh');}
+};
+
+/* ── User ───────────────────────────────── */
+const User={
+  async checkEvent(){
+    const info=document.getElementById('ev-info'),btn=document.getElementById('btn-send');
+    try{const[ev,cfg]=await Promise.all([api.get('/api/public/event'),api.get('/api/public/config').catch(()=>({allowed_domains:[]}))]);S.allowedDomains=cfg.allowed_domains||[];let h='';if(ev){h=`<strong style="color:var(--t1)">${ev.name}</strong><br><span style="font-size:12px">${ev.start_date.substring(0,10)} ～ ${ev.end_date.substring(0,10)}</span>`;btn.disabled=false;}else h='<span style="color:var(--warn)">目前沒有開放的活動</span>';if(S.allowedDomains.length)h+=`<div class="dom-box">${ico('ic-pin')} 限制網域：${S.allowedDomains.map(d=>'@'+d).join('、')}</div>`;info.innerHTML=h;}catch{info.innerHTML='請輸入 Email 以接收驗證碼';btn.disabled=false;}
+  },
+  async sendCode(){
+    const email=document.getElementById('u-email').value.trim();
+    if(!email||!email.includes('@')){Toast.show('請輸入有效的 Email','e');return;}
+    if(S.allowedDomains.length){const dom=email.split('@')[1]||'';if(!S.allowedDomains.includes(dom.toLowerCase())){Toast.show('此網域不被允許，請使用：'+S.allowedDomains.map(d=>'@'+d).join('、'),'e');return;}}
+    try{L.show();const r=await api.post('/api/user/request-code',{email});S.email=email;document.getElementById('v-email').textContent=email;App.show('vvf');document.getElementById('v-code').value='';document.getElementById('v-code').focus();if(r.dev_code)Toast.show('[開發] 驗證碼：'+r.dev_code,'k');else Toast.show('驗證碼已寄出','s');}
+    catch(e){Toast.show(e.message,'e');}finally{L.hide();}
+  },
+  async verify(){const code=document.getElementById('v-code').value.trim().toUpperCase();if(code.length!==6){Toast.show('請輸入 6 位驗證碼','e');return;}try{L.show();await api.post('/api/user/verify',{email:S.email,code});await User.enterCal();}catch(e){Toast.show(e.message,'e');}finally{L.hide();}},
+  async enterCal(){
+    try{L.show();const ev=await api.get('/api/user/event');if(!ev){Toast.show('目前沒有開放的活動','e');App.show('vh');return;}
+    S.event=ev;document.getElementById('mc-ev-name').textContent=ev.name;document.getElementById('mc-ev-rng').textContent=`${(ev.start_date||'').substring(0,10)} ～ ${(ev.end_date||'').substring(0,10)}`;document.getElementById('mc-email').textContent=S.email||'';document.getElementById('mc-qmax').textContent=ev.max_slots_per_user;document.getElementById('dd-qmax').textContent=ev.max_slots_per_user;document.getElementById('dd-email').textContent=S.email||'';
+    App.show('vmc'); await MC.renderAll();}
+    catch(e){Toast.show(e.message,'e');App.show('vh');}finally{L.hide();}
+  },
+  async logout(){await api.post('/api/user/logout').catch(()=>{});S.email=null;S.event=null;App.show('vh');}
+};
+
+/* ── Month Calendar ─────────────────────── */
+const MC = {
+  avail:        {},
+  myDates:      new Set(),
+  excludedDates: new Map(),  // date -> holiday name
+
+  async loadAll() {
+    const ev=S.event; if(!ev)return;
+    try{
+      const r=await api.get(`/api/user/all-availability?eventId=${ev.id}`);
+      MC.avail=r.availability||{};
+      MC.myDates=new Set(r.my_dates||[]);
+      MC.excludedDates=new Map((r.excluded_dates||[]).map(d=>[d.date, d.note||'']));
+    }
+    catch{MC.avail={};MC.myDates=new Set();MC.excludedDates=new Map();}
+  },
+
+  async renderAll() {
+    await MC.loadAll();
+    await MC.refreshQ();
+    MC.buildGrid();
+  },
+
+  async refreshQ() {
+    const ev=S.event; if(!ev)return;
+    S.myTotal=MC.myDates.size;
+    const max=ev.max_slots_per_user;
+    const q=document.getElementById('mc-q');
+    q.textContent=S.myTotal; q.className=S.myTotal>=max?'full':'';
+    document.getElementById('mc-qwarn').style.display=S.myTotal>=max?'':'none';
+    const dq=document.getElementById('dd-q');
+    if(dq){dq.textContent=S.myTotal;document.getElementById('dd-qwarn').style.display=S.myTotal>=max?'':'none';}
+  },
+
+  buildGrid() {
+    const ev=S.event;
+    const evS=(ev.start_date||'').substring(0,10);
+    const evE=(ev.end_date||'').substring(0,10);
+    const sD=new Date(evS+'T00:00:00'), eD=new Date(evE+'T00:00:00');
+    const months=[];
+    let cur=new Date(sD.getFullYear(),sD.getMonth(),1);
+    const eMon=new Date(eD.getFullYear(),eD.getMonth(),1);
+    while(cur<=eMon){months.push({yr:cur.getFullYear(),mo:cur.getMonth()+1});cur.setMonth(cur.getMonth()+1);}
+    const body=document.getElementById('mc-body');
+    body.innerHTML=`<div class="months-outer">
+      <div class="months-legend">
+        <div class="mleg"><div class="mleg-dot" style="background:#22c55e"></div>尚有可預約時段</div>
+        <div class="mleg"><div class="mleg-dot" style="background:#ef4444"></div>時段已額滿</div>
+        <div class="mleg"><div class="mleg-mine">7</div>我有預約（藍框）</div>
+      </div>
+      <div class="months-grid" id="months-grid"></div>
+    </div>`;
+    const grid=document.getElementById('months-grid');
+    months.forEach(({yr,mo})=>grid.appendChild(MC.buildMonth(yr,mo,evS,evE)));
+  },
+
+  buildMonth(yr,mo,evS,evE) {
+    const todayD=new Date(TODAY+'T00:00:00');
+    const dim=new Date(yr,mo,0).getDate();
+    const off=new Date(yr,mo-1,1).getDay();
+    const offset=off===0?6:off-1;
+    const card=document.createElement('div'); card.className='mmc';
+    const t=document.createElement('div'); t.className='mmc-title';
+    t.textContent=`${yr}年${MON[mo-1]}`; card.appendChild(t);
+    const dr=document.createElement('div'); dr.className='mmc-dow';
+    ['一','二','三','四','五','六','日'].forEach((d,i)=>{
+      const c=document.createElement('div');c.className='mmc-dow-c'+(i>=5?' we':'');c.textContent=d;dr.appendChild(c);
+    });
+    card.appendChild(dr);
+    const dg=document.createElement('div'); dg.className='mmc-grid';
+    const prevDim=new Date(yr,mo-1,0).getDate();
+    for(let i=0;i<offset;i++){const c=document.createElement('div');c.className='mmc-day other';const n=document.createElement('div');n.className='mmc-num';n.textContent=prevDim-offset+1+i;c.appendChild(n);dg.appendChild(c);}
+    for(let d=1;d<=dim;d++){
+      const ds=`${yr}-${pad(mo)}-${pad(d)}`;
+      const dt=new Date(yr,mo-1,d);
+      const isToday=ds===TODAY, isPast=dt<todayD&&!isToday;
+      const inRange=ds>=evS&&ds<=evE, status=MC.avail[ds], isMyDay=MC.myDates.has(ds);
+      const isExcluded=MC.excludedDates.has(ds);
+      const holidayName=isExcluded?(MC.excludedDates.get(ds)||''):'';
+      const cell=document.createElement('div');
+      let cellCls='mmc-day'+(isExcluded?' holiday':(!inRange||!status?' inactive':' can'))+(isPast&&!isToday?' past':'');
+      cell.className=cellCls;
+      if(isExcluded&&holidayName)cell.dataset.holiday=holidayName;
+      if(inRange&&status&&!isExcluded)cell.onclick=()=>MC.openDay(ds,dt);
+      const num=document.createElement('div');
+      num.className='mmc-num'+(isToday?' today':'')+(isMyDay&&!isExcluded?' mybook':'');
+      num.textContent=d; cell.appendChild(num);
+      if(inRange&&status&&!isExcluded){const dot=document.createElement('div');dot.className='mmc-dot '+(status==='open'?'avail':'full');cell.appendChild(dot);}
+      dg.appendChild(cell);
+    }
+    const tot=offset+dim, rem=(7-tot%7)%7;
+    for(let i=1;i<=rem;i++){const c=document.createElement('div');c.className='mmc-day other';const n=document.createElement('div');n.className='mmc-num';n.textContent=i;c.appendChild(n);dg.appendChild(c);}
+    card.appendChild(dg); return card;
+  },
+
+  async openDay(ds,dateObj) {
+    const ev=S.event; if(!ev)return;
+    const dow=dateObj.getDay();
+    const dsMap={};(ev.day_schedules||[]).forEach(d=>dsMap[d.day_of_week]=d);
+    const sched=dsMap[dow]; if(!sched)return;
+    const m=dateObj.getMonth()+1, d=dateObj.getDate();
+    document.getElementById('dd-ttl').textContent=`${dateObj.getFullYear()}年${m}月${d}日`;
+    document.getElementById('dd-sub').textContent=`週${DZH[dow]}`;
+    App.show('vdd'); await DD.render(ds,sched);
+  },
+};
+
+
+const DD={
+  date:null,sched:null,
+  async render(date,sched){
+    DD.date=date;DD.sched=sched;
+    const ev=S.event;const box=document.getElementById('dd-slots');
+    box.innerHTML='<div class="slot-empty">載入中…</div>';
+    const allSlots=genSlots(sched.slot_start_time,sched.slot_end_time,sched.slot_duration);
+    if(!allSlots.length){box.innerHTML='<div class="slot-empty">此日期無可用時段</div>';return;}
+    let bkData;
+    try{bkData=await api.get(`/api/user/day-slots?eventId=${ev.id}&date=${date}`);}
+    catch(e){box.innerHTML=`<div class="slot-empty">載入失敗：${e.message}</div>`;return;}
+    S.myTotal=bkData.my_total||0;
+    const max=ev.max_slots_per_user;
+    document.getElementById('dd-q').textContent=S.myTotal;
+    document.getElementById('dd-q').className=S.myTotal>=max?'full':'';
+    document.getElementById('dd-qwarn').style.display=S.myTotal>=max?'':'none';
+    document.getElementById('mc-q').textContent=S.myTotal;
+    document.getElementById('mc-q').className=S.myTotal>=max?'full':'';
+    const bm={};bkData.bookings.forEach(b=>{const st=String(b.slot_start_time).substring(0,5);bm[st]={mine:!!b.is_mine,email:b.email};});
+    const dur=sched.slot_duration;
+    box.innerHTML=allSlots.map(sl=>{
+      const info=bm[sl.start];
+      if(!info){
+        const full=S.myTotal>=max;
+        return `<div class="slot-row">
+          <div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div>
+          <div class="slot-r"><span class="sp sp-f">可預約</span>${full?'':` <button class="btn btn-p btn-xs" onclick="DD.book('${date}','${sl.start}','${sl.end}')">${ico('ic-check')} 預約</button>`}</div>
+        </div>`;
+      }else if(info.mine){
+        return `<div class="slot-row">
+          <div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div>
+          <div class="slot-r"><span class="sp sp-m">${ico('ic-check')} 已選取</span> <button class="btn btn-g btn-xs" onclick="DD.cancel('${date}','${sl.start}')">${ico('ic-x')} 取消</button></div>
+        </div>`;
+      }else{
+        return `<div class="slot-row">
+          <div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div>
+          <div class="slot-r"><span class="sp sp-t">已被預約</span><span class="booker-em" title="${info.email}">${info.email}</span></div>
+        </div>`;
+      }
+    }).join('');
+  },
+  async book(date,start,end){
+    const ev=S.event;
+    try{L.show();await api.post('/api/user/book',{eventId:ev.id,date,slotStart:start,slotEnd:end});Toast.show('時段預約成功','s');await MC.loadAll();await MC.refreshQ();MC.buildGrid();await DD.render(date,DD.sched);}
+    catch(e){Toast.show(e.message,'e');}finally{L.hide();}
+  },
+  async cancel(date,start){
+    const ev=S.event;
+    try{L.show();await api.del('/api/user/book',{eventId:ev.id,date,slotStart:start});Toast.show('已取消該時段','i');await MC.loadAll();await MC.refreshQ();MC.buildGrid();await DD.render(date,DD.sched);}
+    catch(e){Toast.show(e.message,'e');}finally{L.hide();}
+  },
+};
+
+window.addEventListener('DOMContentLoaded',()=>App.init());
+</script>
+</body>
+</html>
