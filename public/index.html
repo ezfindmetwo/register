@@ -18,6 +18,7 @@
   --sm-bg:rgba(5,150,105,.1);--sm-bd:rgba(5,150,105,.65);--sm-tx:#065f46;--sm-hv:rgba(5,150,105,.06);
   --st-bg:rgba(100,116,139,.08);--st-bd:rgba(100,116,139,.3);--st-tx:#94a3b8;
   --sh:0 1px 6px rgba(15,23,42,.07);--sh2:0 4px 20px rgba(15,23,42,.1);
+  --line:#06c755;--line-d:#05a847;
 }
 [data-theme=dark]{
   --bg:#0d1424;--s0:#182033;--s1:#1e2d42;--s2:#243347;
@@ -30,6 +31,7 @@
   --sm-bg:rgba(16,185,129,.18);--sm-bd:rgba(16,185,129,.85);--sm-tx:#6ee7b7;--sm-hv:rgba(16,185,129,.1);
   --st-bg:rgba(51,65,85,.4);--st-bd:rgba(100,116,139,.45);--st-tx:#475569;
   --sh:0 2px 10px rgba(0,0,0,.35);--sh2:0 4px 24px rgba(0,0,0,.5);
+  --line:#06c755;--line-d:#05a847;
 }
 
 /* ─── Reset ─────────────────────────────────── */
@@ -169,6 +171,17 @@ a{color:inherit;text-decoration:none}
 .bk-pill{background:var(--ok-bg);border:1px solid var(--ok-bd);color:var(--ok-tx);font-size:11px;padding:3px 8px;border-radius:5px;font-family:'Courier New',monospace}
 .nodata{color:var(--t4);text-align:center;padding:36px;font-size:14px}
 .dom-box{background:var(--ac-bg);border:1px solid rgba(37,99,235,.22);border-radius:7px;padding:8px 11px;font-size:12px;color:var(--ac-tx);margin-top:9px;display:flex;align-items:center;gap:5px}
+.btn-line{background:var(--line);color:#fff;border:none;font-size:15px;padding:14px 24px;
+  border-radius:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;
+  width:100%;font-weight:700;transition:background .18s}
+.btn-line:hover{background:var(--line-d)}
+.btn-line:disabled{opacity:.5;cursor:not-allowed}
+.line-logo{width:22px;height:22px;flex-shrink:0}
+.user-avatar{width:48px;height:48px;border-radius:50%;object-fit:cover;border:2px solid var(--bd)}
+.name-inp{width:100%;background:var(--s1);border:1.5px solid var(--bd);color:var(--t1);
+  border-radius:9px;padding:12px 14px;font-size:20px;text-align:center;outline:none;
+  letter-spacing:.15em;transition:border-color .18s}
+.name-inp:focus{border-color:var(--ac)}
 .code-inp{width:100%;background:var(--s1);border:1px solid var(--bd);color:var(--t1);border-radius:10px;padding:14px;font-size:34px;font-family:'Courier New',monospace;letter-spacing:.35em;text-align:center;outline:none;transition:border-color .18s}
 .code-inp:focus{border-color:var(--ac);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
 .divider{border:none;border-top:1px solid var(--bd);margin:16px 0}
@@ -314,7 +327,6 @@ a{color:inherit;text-decoration:none}
         <div class="hbtn-lbl">一般使用者</div><div class="hbtn-sub">User Registration</div>
       </button>
     </div>
-    <div class="h-hint">預設管理者密碼：admin123</div>
   </div>
 </div>
 
@@ -354,6 +366,7 @@ a{color:inherit;text-decoration:none}
       <button class="tabbtn on" onclick="Admin.tab('ev',this)"><svg class="ico" style="font-size:13px"><use href="#ic-target"/></svg> 活動設定</button>
       <button class="tabbtn" onclick="Admin.tab('em',this)"><svg class="ico" style="font-size:13px"><use href="#ic-mail"/></svg> Email 設定</button>
       <button class="tabbtn" onclick="Admin.tab('bk',this)"><svg class="ico" style="font-size:13px"><use href="#ic-list"/></svg> 預約清單</button>
+      <button class="tabbtn" onclick="Admin.tab('pw',this)"><svg class="ico" style="font-size:13px"><use href="#ic-lock"/></svg> 修改密碼</button>
     </div>
     <!-- Event -->
     <div class="panel" id="tab-ev">
@@ -423,25 +436,62 @@ a{color:inherit;text-decoration:none}
     </div>
     <!-- Email -->
     <div class="panel hidden" id="tab-em">
-      <h3><svg class="ico" style="font-size:15px"><use href="#ic-mail"/></svg> Email 伺服器設定</h3>
-      <div class="fg2">
-        <div class="fg"><label class="fl">SMTP Host</label><input class="fi" id="em-h" placeholder="smtp.gmail.com"></div>
-        <div class="fg"><label class="fl">Port</label><input class="fi" type="number" id="em-p" value="587"></div>
-        <div class="fg"><label class="fl">帳號</label><input class="fi" id="em-u" placeholder="user@example.com"></div>
-        <div class="fg"><label class="fl">密碼
-            <span style="font-weight:400;color:var(--t4);font-size:10px;margin-left:6px">Gmail 請使用「應用程式密碼」而非帳號密碼</span>
-          </label><input class="fi" type="password" id="em-pw" placeholder="（已儲存—如需更改才重新輸入）"></div>
-        <div class="fg sp2"><label class="fl">寄件人 Email</label><input class="fi" id="em-f" placeholder="noreply@example.com"></div>
-        <div class="fg sp2"><div class="cr"><input type="checkbox" id="em-ssl" checked><label for="em-ssl">啟用 SSL / STARTTLS</label></div></div>
+      <h3><svg class="ico" style="font-size:15px"><use href="#ic-mail"/></svg> Email 發信設定</h3>
+      <div class="fg">
+        <label class="fl">發信方式</label>
+        <div class="mtabs" style="margin-bottom:6px">
+          <button class="mtab on" id="ep-resend" onclick="Admin.setEmailProvider('resend',this)">Resend</button>
+          <button class="mtab" id="ep-brevo" onclick="Admin.setEmailProvider('brevo',this)">Brevo（無需驗證網域）</button>
+          <button class="mtab" id="ep-smtp" onclick="Admin.setEmailProvider('smtp',this)">SMTP</button>
+        </div>
+        <p id="em-provider-hint" style="font-size:12px;color:var(--t3);margin:0">使用 Resend HTTP API，不受 Render SMTP 封鎖。免費 3,000 封/月（需驗證網域）。</p>
       </div>
-      <div class="fg"><label class="fl">發信測試 — 收件人 Email</label>
-          <input class="fi" id="em-to" type="email" placeholder="輸入要接收測試信的 Email 地址">
+      <div id="em-resend-fields">
+        <div class="fg">
+          <label class="fl"><span id="apikey-label">API Key</span>
+            <a id="apikey-link" href="https://resend.com/api-keys" target="_blank" style="color:var(--ac);font-size:10px;margin-left:6px;font-weight:400">→ 取得 API Key</a>
+          </label>
+          <input class="fi" id="em-apikey" type="password" placeholder="re_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+          <p style="font-size:11px;color:var(--t4);margin-top:4px">已儲存時留空保留原值</p>
         </div>
-        <div style="display:flex;gap:9px;margin-top:4px;flex-wrap:wrap">
-          <button class="btn btn-p" onclick="Admin.saveEm()">儲存設定</button>
-          <button class="btn btn-g" id="btn-test" onclick="Admin.testEm()"><svg class="ico"><use href="#ic-signal"/></svg> 發信測試</button>
+        <div class="fg"><label class="fl">寄件人 Email</label><input class="fi" id="em-f-resend" placeholder="noreply@yourdomain.com"></div>
+      </div>
+      <div id="em-smtp-fields" class="hidden">
+        <div class="fg2">
+          <div class="fg"><label class="fl">SMTP Host</label><input class="fi" id="em-h" placeholder="smtp.gmail.com"></div>
+          <div class="fg"><label class="fl">Port</label><input class="fi" type="number" id="em-p" value="587"></div>
+          <div class="fg"><label class="fl">帳號</label><input class="fi" id="em-u" placeholder="user@example.com"></div>
+          <div class="fg"><label class="fl">密碼 <span style="font-weight:400;color:var(--t4);font-size:10px;margin-left:4px">Gmail 請用應用程式密碼</span></label><input class="fi" type="password" id="em-pw" placeholder="（已儲存—如需更改才重新輸入）"></div>
+          <div class="fg span2"><label class="fl">寄件人 Email</label><input class="fi" id="em-f" placeholder="noreply@example.com"></div>
+          <div class="fg span2"><div class="chk-row"><input type="checkbox" id="em-ssl" checked><label for="em-ssl">啟用 SSL / STARTTLS</label></div></div>
         </div>
-        <div id="test-res" class="hidden"></div>
+      </div>
+      <div class="fg"><label class="fl">發信測試 — 收件人 Email</label><input class="fi" id="em-to" type="email" placeholder="輸入要接收測試信的 Email 地址"></div>
+      <div style="display:flex;gap:9px;margin-top:4px;flex-wrap:wrap">
+        <button class="btn btn-p" onclick="Admin.saveEm()">儲存設定</button>
+        <button class="btn btn-g" id="btn-test" onclick="Admin.testEm()"><svg class="ico"><use href="#ic-signal"/></svg> 發信測試</button>
+      </div>
+      <div id="test-res" class="hidden"></div>
+    </div>
+    <!-- Password -->
+    <div class="panel hidden" id="tab-pw">
+      <h3><svg class="ico" style="font-size:15px"><use href="#ic-lock"/></svg> 修改管理者密碼</h3>
+      <div style="max-width:360px">
+        <div class="fg"><label class="fl">目前密碼</label>
+          <input class="fi" type="password" id="pw-cur" placeholder="請輸入目前密碼" autocomplete="current-password">
+        </div>
+        <div class="fg"><label class="fl">新密碼（至少 6 字元）</label>
+          <input class="fi" type="password" id="pw-new" placeholder="請輸入新密碼" autocomplete="new-password">
+        </div>
+        <div class="fg"><label class="fl">確認新密碼</label>
+          <input class="fi" type="password" id="pw-cfm" placeholder="再次輸入新密碼" autocomplete="new-password"
+            onkeydown="if(event.key==='Enter')Admin.changePw()">
+        </div>
+        <div id="pw-res" class="hidden"></div>
+        <button class="btn btn-p" style="margin-top:4px" onclick="Admin.changePw()">
+          <svg class="ico"><use href="#ic-check"/></svg> 確認修改
+        </button>
+      </div>
     </div>
     <!-- Bookings -->
     <div class="panel hidden" id="tab-bk">
@@ -451,35 +501,45 @@ a{color:inherit;text-decoration:none}
   </div>
 </div>
 
-<!-- ═══ USER EMAIL ════════════════════════════ -->
+<!-- ═══ LINE LOGIN ════════════════════════════════════════════════════════ -->
 <div id="vue" class="page-center hidden">
   <div class="card fade-up">
     <button class="back" onclick="App.show('vh')"><svg class="ico" style="font-size:13px"><use href="#ic-back"/></svg> 返回首頁</button>
-    <div class="card-ico"><svg class="ico" style="font-size:21px"><use href="#ic-mail"/></svg></div>
-    <div class="card-ttl">輸入 Email</div>
-    <div class="card-sub" id="ev-info" style="margin-top:5px;margin-bottom:16px">正在載入活動資訊…</div>
-    <div class="fg"><label class="fl">Email 地址</label>
-      <input class="fi" type="email" id="u-email" placeholder="your@email.com" onkeydown="if(event.key==='Enter')User.sendCode()">
+    <div class="card-ico" style="background:rgba(6,199,85,.12);color:var(--line)">
+      <svg class="ico" style="font-size:22px"><use href="#ic-cal"/></svg>
     </div>
-    <button class="btn btn-p btn-full" id="btn-send" onclick="User.sendCode()" disabled><svg class="ico"><use href="#ic-mail"/></svg> 發送驗證碼</button>
+    <div class="card-ttl">使用者登入</div>
+    <div class="card-sub" id="ev-info" style="margin-top:5px;margin-bottom:20px">正在載入活動資訊…</div>
+    <button class="btn-line" id="btn-line-login" onclick="User.lineLogin()" disabled>
+      <svg class="line-logo" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.078 9.436-6.975C23.176 14.393 24 12.458 24 10.314M9.304 13.032H7.554c-.346 0-.63-.285-.63-.63V8.108c0-.345.284-.63.63-.63.348 0 .63.285.63.63v3.665h1.12c.348 0 .63.284.63.629 0 .345-.282.63-.63.63m2.139 0c-.346 0-.628-.285-.628-.63V8.108c0-.345.282-.63.63-.63.346 0 .628.285.628.63v4.294c0 .345-.282.63-.63.63m4.926 0c-.196 0-.376-.092-.496-.252l-2.462-3.33v2.952c0 .345-.282.63-.63.63-.348 0-.63-.285-.63-.63V8.108c0-.27.174-.51.432-.595.063-.023.134-.033.198-.033.195 0 .374.104.495.252l2.462 3.33V8.108c0-.345.283-.63.63-.63.348 0 .63.285.63.63v4.294c0 .345-.282.63-.63.63m3.788-3.016c.348 0 .629.285.629.63 0 .344-.281.629-.629.629H18.4v.757h1.757c.348 0 .629.284.629.629 0 .345-.281.63-.629.63h-2.388c-.344 0-.628-.285-.628-.63V8.108c0-.345.284-.63.631-.63h2.385c.348 0 .629.285.629.63 0 .349-.281.63-.629.63H18.4v.758h1.757z"/>
+      </svg>
+      使用 LINE 登入
+    </button>
+    <p style="text-align:center;font-size:11px;color:var(--t4);margin-top:12px">將開啟 LINE 登入視窗，請掃描 QR Code 或在手機上確認</p>
   </div>
 </div>
 
-<!-- ═══ USER VERIFY ═══════════════════════════ -->
-<div id="vvf" class="page-center hidden">
+<!-- ═══ SET NAME (first login) ════════════════════════════════════════════ -->
+<div id="vname" class="page-center hidden">
   <div class="card fade-up">
-    <button class="back" onclick="App.show('vue')"><svg class="ico" style="font-size:13px"><use href="#ic-back"/></svg> 返回</button>
-    <div class="card-ico"><svg class="ico" style="font-size:21px"><use href="#ic-clock"/></svg></div>
-    <div class="card-ttl">輸入驗證碼</div>
-    <div class="card-sub" style="margin-top:5px;margin-bottom:16px">
-      已寄送 6 位驗證碼至<br><strong id="v-email" style="color:var(--ac)"></strong><br><span style="font-size:12px">（有效期 10 分鐘）</span>
+    <div style="text-align:center;margin-bottom:20px">
+      <img id="name-avatar" src="" alt="" class="user-avatar" style="display:none">
+      <div id="name-line-nm" style="color:var(--t2);font-size:14px;margin-top:8px"></div>
     </div>
+    <div class="card-ttl">請輸入您的姓名</div>
+    <div class="card-sub" style="margin-top:5px;margin-bottom:20px">首次登入需要設定姓名，日曆上其他人可看到是誰預約了該時段。</div>
     <div class="fg">
-      <input class="code-inp" id="v-code" type="text" placeholder="A1B2C3" maxlength="6" oninput="this.value=this.value.toUpperCase()" onkeydown="if(event.key==='Enter')User.verify()">
+      <label class="fl">中文姓名（最多 4 字，不允許英文或數字）</label>
+      <input class="name-inp" id="name-inp" type="text" maxlength="4" placeholder="王小明"
+        oninput="User.validateName(this)"
+        onkeydown="if(event.key==='Enter')User.submitName()">
+      <p id="name-err" style="color:var(--er-tx);font-size:12px;margin-top:5px;display:none"></p>
     </div>
-    <button class="btn btn-p btn-full" onclick="User.verify()">驗證並進入系統</button>
+    <button class="btn btn-p btn-full" id="btn-name" onclick="User.submitName()">確認並進入系統</button>
   </div>
 </div>
+
 
 <!-- ═══ MONTH CALENDAR ════════════════════════ -->
 <div id="vmc" class="hidden">
@@ -576,19 +636,46 @@ const Toast={show(msg,t='i'){const e=document.createElement('div');e.className='
 const L={show(){document.getElementById('ov').classList.remove('hidden');},hide(){document.getElementById('ov').classList.add('hidden');}};
 
 /* ── State ──────────────────────────────── */
-const VIEWS=['vh','val','va','vue','vvf','vmc','vdd'];
-const S={email:null,event:null,allowedDomains:[],myTotal:0};
+const VIEWS=['vh','val','va','vue','vname','vmc','vdd'];
+const S={userId:null,chinName:null,dispName:null,picUrl:null,event:null,lineEnabled:false,myTotal:0};
 
 /* ── App ────────────────────────────────── */
 const App={
   show(id){VIEWS.forEach(v=>document.getElementById(v).classList.add('hidden'));document.getElementById(id).classList.remove('hidden');},
   async init(){
     Theme.init();
-    try{const st=await api.get('/api/auth/status');if(st.is_admin){App.show('va');await Admin.load();return;}if(st.user_email){S.email=st.user_email;await User.enterCal();return;}}catch{}
+    // Check for LINE error param (set by callback on failure)
+    const params = new URLSearchParams(location.search);
+    if(params.has('line_error')){
+      history.replaceState({}, '', '/');
+      Toast.show('LINE 登入失敗：' + (params.get('line_error')||'未知錯誤'), 'e');
+    }
+    // Check server session — single source of truth
+    try{
+      const st = await api.get('/api/auth/status');
+      if(st.is_admin){App.show('va'); await Admin.load(); return;}
+      if(st.user_id){
+        S.userId=st.user_id; S.chinName=st.chinese_name;
+        S.dispName=st.display_name; S.picUrl=st.picture_url;
+        if(!st.chinese_name){
+          // First LINE login — need Chinese name
+          const av=document.getElementById('name-avatar');
+          if(S.picUrl){av.src=S.picUrl; av.style.display='';}
+          const nm=document.getElementById('name-line-nm');
+          if(nm) nm.textContent=S.dispName||'';
+          document.getElementById('name-inp').value='';
+          document.getElementById('name-err').style.display='none';
+          App.show('vname');
+          setTimeout(()=>document.getElementById('name-inp').focus(), 100);
+          return;
+        }
+        await User.enterCal(); return;
+      }
+    }catch(e){ console.warn('auth/status error:', e); }
     App.show('vh');
   },
   goAdmin(){App.show('val');document.getElementById('apwd').focus();},
-  goUser(){App.show('vue');User.checkEvent();},
+  async goUser(){App.show('vue');await User.checkEvent();},
   async adminLogin(){
     const pwd=document.getElementById('apwd').value;
     try{L.show();await api.post('/api/admin/login',{password:pwd});document.getElementById('apwd').value='';App.show('va');await Admin.load();}
@@ -680,17 +767,49 @@ const Admin={
   },
   togPD(btn){const d=+btn.dataset.dow;const on=btn.classList.toggle('on');btn.classList.toggle('off',!on);document.querySelector(`#pd-body tr[data-dow="${d}"]`).querySelectorAll('input').forEach(i=>i.disabled=!on);Admin.pdPrev(d);},
   pdPrev(d){const tr=document.querySelector(`#pd-body tr[data-dow="${d}"]`);if(!tr)return;const on=tr.querySelector('.tog').classList.contains('on');const el=document.getElementById('pdp-'+d);if(!on){el.textContent='';return;}const n=genSlots(tr.querySelector('.pd-ts').value,tr.querySelector('.pd-te').value,tr.querySelector('.pd-dur').value).length;el.textContent=n?`${n} 個時段`:'';},
-  async loadEm(){try{const s=await api.get('/api/admin/email-settings');if(s){document.getElementById('em-h').value=s.host||'';document.getElementById('em-p').value=s.port||587;document.getElementById('em-u').value=s.username||'';document.getElementById('em-f').value=s.from_email||'';document.getElementById('em-ssl').checked=!!s.use_ssl;
-      // 密碼欄不預填（安全考量），但顯示「已儲存」提示
-      const pwEl=document.getElementById('em-pw');
-      if(s.has_password){pwEl.placeholder='（密碼已儲存—如需更改才重新輸入）';}
+  emailProvider:'resend',
+  setEmailProvider(prov,btn){
+    Admin.emailProvider=prov;
+    document.querySelectorAll('.mtab').forEach(b=>b.classList.remove('on'));btn.classList.add('on');
+    document.getElementById('em-resend-fields').classList.toggle('hidden',prov!=='resend');
+    document.getElementById('em-smtp-fields').classList.toggle('hidden',prov==='resend');
+    const hints={
+      resend:'Resend HTTP API — 免費 3,000 封/月，Render 可用，需在 resend.com 驗證網域才能寄給任意收件人。',
+      brevo:'Brevo HTTP API — 免費 300 封/天，不需驗證網域，可直接用 Gmail 當寄件人。',
+      smtp:'SMTP 直連 — Render 免費版已封鎖此方式，僅付費版或本地部署可用。'
+    };
+    document.getElementById('em-provider-hint').textContent=hints[prov]||hints.smtp;
+    const lbl=document.getElementById('apikey-label'), lnk=document.getElementById('apikey-link');
+    if(prov==='brevo'){
+      if(lbl)lbl.textContent='Brevo API Key';
+      if(lnk){lnk.textContent='→ 取得 API Key';lnk.href='https://app.brevo.com/settings/keys/api';}
+    }else if(prov==='resend'){
+      if(lbl)lbl.textContent='Resend API Key';
+      if(lnk){lnk.textContent='→ 取得 API Key';lnk.href='https://resend.com/api-keys';}
+    }
+  },
+  async loadEm(){try{const s=await api.get('/api/admin/email-settings');if(s){
+      const prov=s.provider||'resend';
+      Admin.emailProvider=prov;
+      document.querySelectorAll('.mtab').forEach(b=>b.classList.remove('on'));
+      const activeBtn=document.getElementById('ep-'+prov)||document.getElementById('ep-resend');
+      activeBtn.classList.add('on');
+      Admin.setEmailProvider(prov,activeBtn);
+      // Resend fields
+      document.getElementById('em-f-resend').value=s.from_email||'';
+      if(s.has_api_key)document.getElementById('em-apikey').placeholder='（API Key 已儲存—如需更改才重新輸入）';
+      // SMTP fields
+      document.getElementById('em-h').value=s.host||'';document.getElementById('em-p').value=s.port||587;
+      document.getElementById('em-u').value=s.username||'';document.getElementById('em-f').value=s.from_email||'';
+      document.getElementById('em-ssl').checked=!!s.use_ssl;
+      if(s.has_password)document.getElementById('em-pw').placeholder='（密碼已儲存—如需更改才重新輸入）';
     }}catch{}},
   async loadBk(){
     const list=document.getElementById('bk-list');
     try{const data=await api.get('/api/admin/bookings');document.getElementById('s-tot').textContent=data.length;document.getElementById('s-usr').textContent=new Set(data.map(b=>b.email)).size;
     if(!data.length){list.innerHTML='<div class="nodata">尚無任何預約紀錄</div>';return;}
     const by={};data.forEach(b=>{if(!by[b.email])by[b.email]=[];by[b.email].push(b);});
-    list.innerHTML=Object.entries(by).map(([em,sl])=>`<div class="bk-item"><div class="bk-em">${ico('ic-mail')} ${em} <span style="color:var(--t4);font-weight:400">（${sl.length} 個）</span></div><div class="bk-slots">${sl.sort((a,b)=>a.booking_date.localeCompare(b.booking_date)||a.slot_start_time.localeCompare(b.slot_start_time)).map(s=>`<span class="bk-pill">${s.booking_date.substring(0,10)} ${String(s.slot_start_time).substring(0,5)}</span>`).join('')}</div></div>`).join('');}
+    list.innerHTML=Object.entries(by).map(([em,sl])=>`<div class="bk-item"><div class="bk-em">${ico('ic-user')} <strong>${sl[0].chinese_name||sl[0].display_name||em}</strong> <span style="color:var(--t3);font-size:11px;font-weight:400">${em}</span> <span style="color:var(--t4);font-weight:400">（${sl.length} 個）</span></div><div class="bk-slots">${sl.sort((a,b)=>a.booking_date.localeCompare(b.booking_date)||a.slot_start_time.localeCompare(b.slot_start_time)).map(s=>`<span class="bk-pill">${s.booking_date.substring(0,10)} ${String(s.slot_start_time).substring(0,5)}</span>`).join('')}</div></div>`).join('');}
     catch(e){list.innerHTML=`<div class="nodata">載入失敗：${e.message}</div>`;}
   },
   async saveEv(){
@@ -707,15 +826,17 @@ const Admin={
   async testEm(){
     const btn=document.getElementById('btn-test'),res=document.getElementById('test-res');
     const to=document.getElementById('em-to').value.trim();
+    const prov=Admin.emailProvider;
     if(!to){Toast.show('請填寫測試收件人 Email','e');return;}
     btn.innerHTML=`${ico('ic-signal')} 發送中…`;btn.disabled=true;res.className='hidden';
-    // 直接傳入目前表單值，不需先儲存
     const body={
+      provider:prov,
+      api_key:prov==='resend'?document.getElementById('em-apikey').value:'',
+      from:prov==='resend'?document.getElementById('em-f-resend').value.trim():document.getElementById('em-f').value.trim(),
       host:document.getElementById('em-h').value.trim(),
       port:+document.getElementById('em-p').value,
       username:document.getElementById('em-u').value.trim(),
       password:document.getElementById('em-pw').value,
-      from:document.getElementById('em-f').value.trim(),
       ssl:document.getElementById('em-ssl').checked,
       to,
     };
@@ -723,31 +844,107 @@ const Admin={
     catch(e){res.className='rfail';res.innerHTML=e.message.replace(/\\n/g,'<br>');}
     finally{btn.innerHTML=`${ico('ic-signal')} 發信測試`;btn.disabled=false;res.classList.remove('hidden');}
   },
+  async changePw(){
+    const cur=document.getElementById('pw-cur').value;
+    const nw=document.getElementById('pw-new').value;
+    const cfm=document.getElementById('pw-cfm').value;
+    const res=document.getElementById('pw-res');
+    res.className='hidden';
+    try{
+      L.show();
+      await api.put('/api/admin/password',{current:cur,new:nw,confirm:cfm});
+      ['pw-cur','pw-new','pw-cfm'].forEach(id=>document.getElementById(id).value='');
+      res.className='rok'; res.textContent='✓ 密碼已成功修改';
+      res.classList.remove('hidden');
+      Toast.show('密碼修改成功','s');
+    }catch(e){
+      res.className='rfail'; res.textContent=e.message;
+      res.classList.remove('hidden');
+    }finally{L.hide();}
+  },
   async logout(){await api.post('/api/admin/logout').catch(()=>{});App.show('vh');}
 };
 
-/* ── User ───────────────────────────────── */
+/* ── User (LINE Login) ─────────────────────────── */
 const User={
   async checkEvent(){
-    const info=document.getElementById('ev-info'),btn=document.getElementById('btn-send');
-    try{const[ev,cfg]=await Promise.all([api.get('/api/public/event'),api.get('/api/public/config').catch(()=>({allowed_domains:[]}))]);S.allowedDomains=cfg.allowed_domains||[];let h='';if(ev){h=`<strong style="color:var(--t1)">${ev.name}</strong><br><span style="font-size:12px">${ev.start_date.substring(0,10)} ～ ${ev.end_date.substring(0,10)}</span>`;btn.disabled=false;}else h='<span style="color:var(--warn)">目前沒有開放的活動</span>';if(S.allowedDomains.length)h+=`<div class="dom-box">${ico('ic-pin')} 限制網域：${S.allowedDomains.map(d=>'@'+d).join('、')}</div>`;info.innerHTML=h;}catch{info.innerHTML='請輸入 Email 以接收驗證碼';btn.disabled=false;}
+    const info=document.getElementById('ev-info'), btn=document.getElementById('btn-line-login');
+    try{
+      const[ev,cfg]=await Promise.all([
+        api.get('/api/public/event'),
+        api.get('/api/public/config').catch(()=>({line_enabled:false}))
+      ]);
+      S.lineEnabled=cfg.line_enabled||false;
+      let h='';
+      if(ev){
+        h=`<strong style="color:var(--t1)">${ev.name}</strong><br><span style="font-size:12px">${ev.start_date.substring(0,10)} ～ ${ev.end_date.substring(0,10)}</span>`;
+        btn.disabled=!S.lineEnabled;
+      }else{
+        h='<span style="color:var(--warn)">目前沒有開放的活動</span>';
+        btn.disabled=true;
+      }
+      if(!S.lineEnabled){
+        h+='<div style="margin-top:10px;padding:8px 12px;background:var(--er-bg);border:1px solid var(--er-bd);border-radius:8px;font-size:12px;color:var(--er-tx)">⚠ LINE Login 尚未設定，請管理者在 Render 環境變數加入 LINE_CHANNEL_ID / LINE_CHANNEL_SECRET / LINE_REDIRECT_URI</div>';
+      }
+      info.innerHTML=h;
+    }catch{info.innerHTML='請稍後再試';btn.disabled=true;}
   },
-  async sendCode(){
-    const email=document.getElementById('u-email').value.trim();
-    if(!email||!email.includes('@')){Toast.show('請輸入有效的 Email','e');return;}
-    if(S.allowedDomains.length){const dom=email.split('@')[1]||'';if(!S.allowedDomains.includes(dom.toLowerCase())){Toast.show('此網域不被允許，請使用：'+S.allowedDomains.map(d=>'@'+d).join('、'),'e');return;}}
-    try{L.show();const r=await api.post('/api/user/request-code',{email});S.email=email;document.getElementById('v-email').textContent=email;App.show('vvf');document.getElementById('v-code').value='';document.getElementById('v-code').focus();if(r.dev_code)Toast.show('[開發] 驗證碼：'+r.dev_code,'k');else Toast.show('驗證碼已寄出','s');}
-    catch(e){Toast.show(e.message,'e');}finally{L.hide();}
+
+  async lineLogin(){
+    try{
+      L.show();
+      const r=await api.get('/api/auth/line/url');
+      // 直接跳轉整頁，避免 popup window.close() 被 Chrome 封鎖的問題
+      window.location.href = r.url;
+    }catch(e){L.hide();Toast.show(e.message,'e');}
   },
-  async verify(){const code=document.getElementById('v-code').value.trim().toUpperCase();if(code.length!==6){Toast.show('請輸入 6 位驗證碼','e');return;}try{L.show();await api.post('/api/user/verify',{email:S.email,code});await User.enterCal();}catch(e){Toast.show(e.message,'e');}finally{L.hide();}},
+
+  validateName(inp){
+    const v=inp.value;const err=document.getElementById('name-err');
+    if(/[A-Za-z0-9]/.test(v)){
+      inp.value=v.replace(/[A-Za-z0-9]/g,'');
+      err.textContent='不允許英文或數字';err.style.display='';
+    }else{err.style.display='none';}
+  },
+
+  async submitName(){
+    const name=document.getElementById('name-inp').value.trim();
+    const errEl=document.getElementById('name-err');
+    if(!name){errEl.textContent='請輸入姓名';errEl.style.display='';return;}
+    if(name.length>4){errEl.textContent='最多 4 個字';errEl.style.display='';return;}
+    if(/[A-Za-z0-9]/.test(name)){errEl.textContent='不允許英文或數字';errEl.style.display='';return;}
+    try{
+      L.show();
+      await api.post('/api/user/set-name',{name});
+      S.chinName=name;
+      const st=await api.get('/api/auth/status');
+      S.userId=st.user_id;
+      await User.enterCal();
+    }catch(e){errEl.textContent=e.message;errEl.style.display='';}
+    finally{L.hide();}
+  },
+
   async enterCal(){
-    try{L.show();const ev=await api.get('/api/user/event');if(!ev){Toast.show('目前沒有開放的活動','e');App.show('vh');return;}
-    S.event=ev;document.getElementById('mc-ev-name').textContent=ev.name;document.getElementById('mc-ev-rng').textContent=`${(ev.start_date||'').substring(0,10)} ～ ${(ev.end_date||'').substring(0,10)}`;document.getElementById('mc-email').textContent=S.email||'';document.getElementById('mc-qmax').textContent=ev.max_slots_per_user;document.getElementById('dd-qmax').textContent=ev.max_slots_per_user;document.getElementById('dd-email').textContent=S.email||'';
-    App.show('vmc'); await MC.renderAll();}
-    catch(e){Toast.show(e.message,'e');App.show('vh');}finally{L.hide();}
+    try{
+      L.show();
+      const ev=await api.get('/api/user/event');
+      if(!ev){Toast.show('目前沒有開放的活動','e');App.show('vh');return;}
+      S.event=ev;
+      document.getElementById('mc-ev-name').textContent=ev.name;
+      document.getElementById('mc-ev-rng').textContent=`${(ev.start_date||'').substring(0,10)} ～ ${(ev.end_date||'').substring(0,10)}`;
+      document.getElementById('mc-email').textContent=S.chinName||(S.dispName||'');
+      document.getElementById('mc-qmax').textContent=ev.max_slots_per_user;
+      document.getElementById('dd-qmax').textContent=ev.max_slots_per_user;
+      document.getElementById('dd-email').textContent=S.chinName||(S.dispName||'');
+      const evStart=new Date((ev.start_date||'').substring(0,10)+'T00:00:00');
+      MC.yr=evStart.getFullYear();MC.mo=evStart.getMonth()+1;
+      App.show('vmc');await MC.renderAll();
+    }catch(e){Toast.show(e.message,'e');App.show('vh');}finally{L.hide();}
   },
-  async logout(){await api.post('/api/user/logout').catch(()=>{});S.email=null;S.event=null;App.show('vh');}
+
+  async logout(){await api.post('/api/user/logout').catch(()=>{});S.userId=null;S.chinName=null;S.event=null;App.show('vh');}
 };
+
 
 /* ── Month Calendar ─────────────────────── */
 const MC = {
@@ -875,7 +1072,7 @@ const DD={
     document.getElementById('dd-qwarn').style.display=S.myTotal>=max?'':'none';
     document.getElementById('mc-q').textContent=S.myTotal;
     document.getElementById('mc-q').className=S.myTotal>=max?'full':'';
-    const bm={};bkData.bookings.forEach(b=>{const st=String(b.slot_start_time).substring(0,5);bm[st]={mine:!!b.is_mine,email:b.email};});
+    const bm={};bkData.bookings.forEach(b=>{const st=String(b.slot_start_time).substring(0,5);bm[st]={mine:!!b.is_mine,name:b.chinese_name||b.display_name||''};});
     const dur=sched.slot_duration;
     box.innerHTML=allSlots.map(sl=>{
       const info=bm[sl.start];
@@ -893,7 +1090,7 @@ const DD={
       }else{
         return `<div class="slot-row">
           <div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div>
-          <div class="slot-r"><span class="sp sp-t">已被預約</span><span class="booker-em" title="${info.email}">${info.email}</span></div>
+          <div class="slot-r"><span class="sp sp-t">已被預約</span><span class="booker-em">${info.name||'—'}</span></div>
         </div>`;
       }
     }).join('');

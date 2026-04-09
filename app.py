@@ -1,11 +1,11 @@
 """排程預約系統 — Flask + SQLite"""
-import os, sqlite3, random, smtplib, ssl, functools
+import os, sqlite3, random, smtplib, ssl, functools, requests as _requests
 from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.header import Header
 from email.utils import formataddr
-from flask import Flask, request, jsonify, session, send_from_directory
+from flask import Flask, request, jsonify, session, send_from_directory, redirect
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -17,6 +17,11 @@ app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax',
 DB_PATH        = os.getenv('DB_PATH',        'scheduling.db')
 ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD', 'admin123')
 IS_DEV         = os.getenv('FLASK_ENV',      'development') != 'production'
+
+# LINE Login config
+LINE_CHANNEL_ID     = os.getenv('LINE_CHANNEL_ID', '')
+LINE_CHANNEL_SECRET = os.getenv('LINE_CHANNEL_SECRET', '')
+LINE_REDIRECT_URI   = os.getenv('LINE_REDIRECT_URI', '')  # e.g. https://yourapp.onrender.com/api/auth/line/callback
 _raw_domains   = os.getenv('ALLOWED_EMAIL_DOMAINS', '')
 ALLOWED_DOMAINS= [d.strip().lower() for d in _raw_domains.split(',') if d.strip()]
 
@@ -31,11 +36,18 @@ def get_db():
 def init_db():
     with get_db() as c:
         c.executescript("""
+        CREATE TABLE IF NOT EXISTS admin_settings (
+            id       INTEGER PRIMARY KEY DEFAULT 1,
+            password TEXT NOT NULL DEFAULT 'admin123'
+        );
+        INSERT OR IGNORE INTO admin_settings(id, password) VALUES(1, 'admin123');
         CREATE TABLE IF NOT EXISTS email_settings (
             id INTEGER PRIMARY KEY,
-            host TEXT NOT NULL, port INTEGER NOT NULL DEFAULT 587,
-            username TEXT NOT NULL, password TEXT NOT NULL,
-            use_ssl INTEGER NOT NULL DEFAULT 1, from_email TEXT NOT NULL,
+            provider   TEXT NOT NULL DEFAULT 'smtp',
+            host TEXT NOT NULL DEFAULT '', port INTEGER NOT NULL DEFAULT 587,
+            username TEXT NOT NULL DEFAULT '', password TEXT NOT NULL DEFAULT '',
+            use_ssl INTEGER NOT NULL DEFAULT 1, from_email TEXT NOT NULL DEFAULT '',
+            api_key TEXT NOT NULL DEFAULT '',
             updated_at TEXT DEFAULT (datetime('now'))
         );
         CREATE TABLE IF NOT EXISTS events (
@@ -60,9 +72,14 @@ def init_db():
             UNIQUE(event_id, day_of_week)
         );
         CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT NOT NULL UNIQUE,
-            created_at TEXT DEFAULT (datetime('now')), last_login_at TEXT
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            line_user_id  TEXT UNIQUE,
+            email         TEXT,
+            chinese_name  TEXT,
+            display_name  TEXT,
+            picture_url   TEXT,
+            created_at    TEXT DEFAULT (datetime('now')),
+            last_login_at TEXT
         );
         CREATE TABLE IF NOT EXISTS verification_codes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,13 +118,38 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_excluded_event ON event_excluded_dates(event_id);
         """)
-    # Migration: add schedule_mode to existing events table (idempotent)
+    # Migration: add columns (idempotent)
     with get_db() as c:
-        try: c.execute("ALTER TABLE events ADD COLUMN schedule_mode TEXT NOT NULL DEFAULT 'uniform'")
-        except: pass
+        for col_sql in [
+            "ALTER TABLE events ADD COLUMN schedule_mode TEXT NOT NULL DEFAULT 'uniform'",
+            "ALTER TABLE email_settings ADD COLUMN provider TEXT NOT NULL DEFAULT 'smtp'",
+            "ALTER TABLE email_settings ADD COLUMN api_key TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE users ADD COLUMN line_user_id TEXT",
+            "ALTER TABLE users ADD COLUMN chinese_name TEXT",
+            "ALTER TABLE users ADD COLUMN display_name TEXT",
+            "ALTER TABLE users ADD COLUMN picture_url TEXT",
+        ]:
+            try: c.execute(col_sql)
+            except: pass
+        # 建立索引（欄位加完後才能建）
+        for idx_sql in [
+            "CREATE INDEX IF NOT EXISTS idx_users_line ON users(line_user_id)",
+        ]:
+            try: c.execute(idx_sql)
+            except: pass
     print(f"[DB] {os.path.abspath(DB_PATH)}")
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
+def get_admin_password():
+    """Get admin password from DB (overrides ADMIN_PASSWORD env var)."""
+    try:
+        with get_db() as c:
+            row = c.execute('SELECT password FROM admin_settings WHERE id=1').fetchone()
+            if row and row['password']:
+                return row['password']
+    except: pass
+    return ADMIN_PASSWORD
+
 def row_to_dict(r):   return dict(r) if r else None
 def rows_to_list(rs): return [dict(r) for r in rs]
 def generate_code():  return ''.join(random.choices('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', k=6))
@@ -126,16 +168,42 @@ def admin_required(f):
 def user_required(f):
     @functools.wraps(f)
     def w(*a, **kw):
-        if not session.get('user_email'): return err('請先登入', 401)
+        if not session.get('user_id'): return err('請先登入', 401)
         return f(*a, **kw)
     return w
 
 # ─── Email ────────────────────────────────────────────────────────────────────
 def _make_from(name, addr):
-    """Encode display name only; keep email address as plain ASCII."""
     from email.header import Header
     from email.utils import formataddr
     return formataddr((Header(name, "utf-8").encode(), addr))
+
+# ─── Email sending ─────────────────────────────────────────────────────────────
+def _send_via_api(settings, to_email, subject, html):
+    """HTTP API 發信 — 支援 Resend / Brevo，不受 Render SMTP 封鎖。"""
+    prov    = settings.get('provider','resend')
+    api_key = settings.get('api_key','')
+    from_em = settings.get('from_email','')
+    if prov == 'brevo':
+        resp = _requests.post(
+            'https://api.brevo.com/v3/smtp/email',
+            headers={'api-key': api_key, 'Content-Type': 'application/json'},
+            json={'sender':{'email': from_em},
+                  'to':[{'email': to_email}],
+                  'subject': subject, 'htmlContent': html},
+            timeout=15,
+        )
+        if resp.status_code not in (200, 201):
+            raise Exception(f'Brevo API error {resp.status_code}: {resp.text}')
+    else:  # resend (default)
+        resp = _requests.post(
+            'https://api.resend.com/emails',
+            headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+            json={'from': from_em, 'to': [to_email], 'subject': subject, 'html': html},
+            timeout=15,
+        )
+        if resp.status_code not in (200, 201):
+            raise Exception(f'Resend API error {resp.status_code}: {resp.text}')
 
 def _smtp(s):
     ctx = ssl.create_default_context()
@@ -150,17 +218,14 @@ def _smtp(s):
 
 def test_smtp(s): _smtp(s).quit()
 
-def send_code_email(s, to, code):
-    msg = MIMEMultipart('alternative')
-    msg['Subject'] = Header('【排程預約系統】登入驗證碼', 'utf-8').encode()
-    msg['From']    = _make_from('排程預約系統', s['from_email'])
-    msg['To']      = to
-    html = f"""<html><body style="background:#f0f4f8;font-family:'Segoe UI',sans-serif">
+def _build_html_code(code, from_email, host):
+    return f"""<!DOCTYPE html>
+<html><body style="background:#f0f4f8;font-family:'Segoe UI',sans-serif">
 <div style="max-width:460px;margin:36px auto;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.08)">
-  <div style="background:#1d4ed8;padding:26px 32px"><h1 style="color:#fff;margin:0;font-size:18px;font-weight:700;letter-spacing:-.3px">排程預約系統</h1></div>
-  <div style="padding:30px 32px">
+  <div style="background:#1d4ed8;padding:24px 32px"><h1 style="color:#fff;margin:0;font-size:17px;font-weight:700">排程預約系統</h1></div>
+  <div style="padding:28px 32px">
     <p style="color:#374151;font-size:15px;margin:0 0 16px">您好，以下是您的登入驗證碼：</p>
-    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:22px;text-align:center;margin:0 0 20px">
+    <div style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:10px;padding:22px;text-align:center;margin:0 0 20px">
       <span style="font-size:36px;font-weight:800;letter-spacing:14px;color:#0f172a;font-family:'Courier New',monospace">{code}</span>
     </div>
     <p style="color:#6b7280;font-size:13px;margin:0">此驗證碼將於 <strong>10 分鐘</strong>後失效。若非本人操作請忽略此信。</p>
@@ -169,16 +234,10 @@ def send_code_email(s, to, code):
     <p style="color:#9ca3af;font-size:11px;margin:0">© 排程預約系統 — 系統自動發送，請勿回覆</p>
   </div>
 </div></body></html>"""
-    msg.attach(MIMEText(html, 'html', 'utf-8'))
-    srv = _smtp(s); srv.sendmail(s['from_email'], to, msg.as_string()); srv.quit()
 
-def send_test_email(s, to_email):
-    """發送實際測試信，驗證完整的寄信流程。"""
-    msg = MIMEMultipart('alternative')
-    msg['Subject'] = Header('【排程預約系統】Email 發信測試', 'utf-8').encode()
-    msg['From']    = _make_from('排程預約系統', s['from_email'])
-    msg['To']      = to_email
-    html = f"""<!DOCTYPE html>
+def _build_html_test(settings, to_email):
+    host_info = settings.get('host','') or 'Resend API'
+    return f"""<!DOCTYPE html>
 <html><body style="background:#f0f4f8;font-family:'Segoe UI',sans-serif">
 <div style="max-width:460px;margin:36px auto;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.08)">
   <div style="background:#059669;padding:24px 32px">
@@ -187,19 +246,44 @@ def send_test_email(s, to_email):
   <div style="padding:28px 32px">
     <p style="color:#374151;font-size:15px;margin:0 0 14px">您好，這封信代表您的 Email 設定正確無誤。</p>
     <table style="border-collapse:collapse;width:100%;font-size:13px">
-      <tr><td style="padding:6px 0;color:#6b7280;width:110px">SMTP 主機</td><td style="color:#111827;font-weight:600">{s['host']}:{s['port']}</td></tr>
-      <tr><td style="padding:6px 0;color:#6b7280">寄件人</td><td style="color:#111827;font-weight:600">{s['from_email']}</td></tr>
-      <tr><td style="padding:6px 0;color:#6b7280">收件人</td><td style="color:#111827;font-weight:600">{to_email}</td></tr>
+      <tr><td style="padding:5px 0;color:#6b7280;width:90px">寄件方式</td><td style="color:#111827;font-weight:600">{settings.get('provider','smtp').upper()}</td></tr>
+      <tr><td style="padding:5px 0;color:#6b7280">寄件人</td><td style="color:#111827;font-weight:600">{settings.get('from_email','')}</td></tr>
+      <tr><td style="padding:5px 0;color:#6b7280">收件人</td><td style="color:#111827;font-weight:600">{to_email}</td></tr>
     </table>
   </div>
   <div style="background:#f9fafb;padding:12px 32px;border-top:1px solid #e5e7eb">
     <p style="color:#9ca3af;font-size:11px;margin:0">© 排程預約系統 — 此為測試信，請勿回覆</p>
   </div>
 </div></body></html>"""
-    msg.attach(MIMEText(html, 'html', 'utf-8'))
-    srv = _smtp(s)
-    srv.sendmail(s['from_email'], to_email, msg.as_string())
-    srv.quit()
+
+def send_code_email(s, to_email, code):
+    from email.header import Header
+    subj = Header('【排程預約系統】登入驗證碼', 'utf-8').encode()
+    html = _build_html_code(code, s.get('from_email',''), s.get('host',''))
+    if s.get('provider') in ('resend','brevo'):
+        _send_via_api(s, to_email, '【排程預約系統】登入驗證碼', html)
+    else:
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = subj
+        msg['From']    = _make_from('排程預約系統', s['from_email'])
+        msg['To']      = to_email
+        msg.attach(MIMEText(html, 'html', 'utf-8'))
+        srv = _smtp(s); srv.sendmail(s['from_email'], to_email, msg.as_string()); srv.quit()
+
+def send_test_email(s, to_email):
+    from email.header import Header
+    subj = Header('【排程預約系統】Email 發信測試', 'utf-8').encode()
+    html = _build_html_test(s, to_email)
+    if s.get('provider') in ('resend','brevo'):
+        _send_via_api(s, to_email, '【排程預約系統】Email 發信測試', html)
+    else:
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = subj
+        msg['From']    = _make_from('排程預約系統', s['from_email'])
+        msg['To']      = to_email
+        msg.attach(MIMEText(html, 'html', 'utf-8'))
+        srv = _smtp(s); srv.sendmail(s['from_email'], to_email, msg.as_string()); srv.quit()
+
 
 def _get_dow_cnt(conn, eid):
     """取得 dow->slot_count 對應表，同時支援新版(event_day_schedules)和舊版(event_allowed_days)。"""
@@ -250,20 +334,44 @@ def _load_event_full(conn, open_only=False):
 # ══════════════════════════════════════════════════════════════════════════════
 @app.get('/api/auth/status')
 def auth_status():
-    return ok(is_admin=bool(session.get('is_admin')), user_email=session.get('user_email'))
+    with get_db() as _c:
+        uid = session.get('user_id')
+        urow = _c.execute('SELECT chinese_name,display_name,picture_url FROM users WHERE id=?',(uid,)).fetchone() if uid else None
+    return ok(is_admin=bool(session.get('is_admin')),
+              user_id=uid,
+              chinese_name=urow['chinese_name'] if urow else None,
+              display_name=urow['display_name'] if urow else None,
+              picture_url=urow['picture_url'] if urow else None)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ADMIN
 # ══════════════════════════════════════════════════════════════════════════════
 @app.post('/api/admin/login')
 def admin_login():
-    if (request.json or {}).get('password') == ADMIN_PASSWORD:
+    if (request.json or {}).get('password') == get_admin_password():
         session['is_admin'] = True; session.permanent = True; return ok()
     return err('密碼錯誤', 401)
 
 @app.post('/api/admin/logout')
 def admin_logout():
     session.pop('is_admin', None); return ok()
+
+@app.put('/api/admin/password')
+@admin_required
+def change_password():
+    d = request.json or {}
+    current = (d.get('current') or '').strip()
+    new_pwd = (d.get('new')     or '').strip()
+    confirm = (d.get('confirm') or '').strip()
+    if current != get_admin_password():
+        return err('目前密碼不正確')
+    if len(new_pwd) < 6:
+        return err('新密碼至少需要 6 個字元')
+    if new_pwd != confirm:
+        return err('新密碼與確認密碼不符')
+    with get_db() as c:
+        c.execute('INSERT OR REPLACE INTO admin_settings(id,password) VALUES(1,?)', (new_pwd,))
+    return ok()
 
 @app.get('/api/admin/email-settings')
 @admin_required
@@ -273,26 +381,28 @@ def get_email():
     if not row:
         return jsonify(None)
     d = row_to_dict(row)
-    d['has_password'] = bool(d.get('password'))  # 告知前端是否已有儲存的密碼
-    d.pop('password', None)                        # 不回傳明文密碼給前端
+    d['has_password'] = bool(d.get('password'))
+    d['has_api_key']  = bool(d.get('api_key'))
+    d.pop('password', None)
+    d.pop('api_key',  None)
     return jsonify(d)
 
 @app.put('/api/admin/email-settings')
 @admin_required
 def save_email():
     d = request.json
+    provider = (d.get('provider') or 'smtp').strip()
     with get_db() as c:
-        ex = c.execute('SELECT id, password FROM email_settings LIMIT 1').fetchone()
-        # 若密碼欄位空白，保留資料庫原有密碼（瀏覽器不會自動帶入 password 欄位）
-        new_pwd = (d.get('password') or '').strip()
-        if not new_pwd and ex:
-            new_pwd = ex['password']  # 維持舊密碼
+        ex = c.execute('SELECT id, password, api_key FROM email_settings LIMIT 1').fetchone()
+        new_pwd = (d.get('password') or '').strip() or (ex['password'] if ex else '')
+        new_key = (d.get('api_key')  or '').strip() or (ex['api_key']  if ex else '')
+        vals = (provider, d.get('host',''), int(d.get('port',587)),
+                d.get('username',''), new_pwd, 1 if d.get('ssl') else 0,
+                d.get('from',''), new_key, now_str())
         if ex:
-            c.execute("UPDATE email_settings SET host=?,port=?,username=?,password=?,use_ssl=?,from_email=?,updated_at=? WHERE id=?",
-                      (d['host'],int(d['port']),d['username'],new_pwd,1 if d.get('ssl') else 0,d['from'],now_str(),ex['id']))
+            c.execute('UPDATE email_settings SET provider=?,host=?,port=?,username=?,password=?,use_ssl=?,from_email=?,api_key=?,updated_at=? WHERE id='+str(ex['id']), vals)
         else:
-            c.execute("INSERT INTO email_settings(host,port,username,password,use_ssl,from_email) VALUES(?,?,?,?,?,?)",
-                      (d['host'],int(d['port']),d['username'],new_pwd,1 if d.get('ssl') else 0,d['from']))
+            c.execute('INSERT INTO email_settings(provider,host,port,username,password,use_ssl,from_email,api_key,updated_at) VALUES(?,?,?,?,?,?,?,?,?)', vals)
     return ok()
 
 @app.post('/api/admin/email-test')
@@ -300,24 +410,32 @@ def save_email():
 def email_test():
     import smtplib as _smtp_mod
     d = request.json or {}
+    provider = (d.get('provider') or 'smtp').strip()
     settings = {
+        'provider':   provider,
         'host':       (d.get('host') or '').strip(),
         'port':       int(d.get('port') or 587),
         'username':   (d.get('username') or '').strip(),
         'password':   (d.get('password') or '').strip(),
         'use_ssl':    bool(d.get('ssl', True)),
         'from_email': (d.get('from') or '').strip(),
+        'api_key':    (d.get('api_key') or '').strip(),
     }
     to_email = (d.get('to') or '').strip()
-    if not settings['host']:       return err('請填寫 SMTP 主機')
     if not settings['from_email']: return err('請填寫寄件人 Email')
     if not to_email:               return err('請填寫測試收件人 Email')
-    # 密碼欄位若為空（瀏覽器未帶入），從資料庫補回
-    if not settings['password']:
-        with get_db() as c:
-            row = c.execute('SELECT password FROM email_settings LIMIT 1').fetchone()
-            if row and row['password']:
-                settings['password'] = row['password']
+    if provider in ('resend','brevo'):
+        if not settings['api_key']:
+            with get_db() as c:
+                row = c.execute('SELECT api_key FROM email_settings LIMIT 1').fetchone()
+                if row and row['api_key']: settings['api_key'] = row['api_key']
+        if not settings['api_key']: return err('請填寫 API Key')
+    else:
+        if not settings['host']:   return err('請填寫 SMTP 主機')
+        if not settings['password']:
+            with get_db() as c:
+                row = c.execute('SELECT password FROM email_settings LIMIT 1').fetchone()
+                if row and row['password']: settings['password'] = row['password']
     try:
         send_test_email(settings, to_email)
         return ok()
@@ -410,10 +528,11 @@ def toggle_event():
 @admin_required
 def admin_bookings():
     with get_db() as c:
-        rows = c.execute("""
-            SELECT b.id,b.event_id,u.email,b.booking_date,b.slot_start_time,b.slot_end_time,b.created_at
-            FROM slot_bookings b JOIN users u ON b.user_id=u.id
-            ORDER BY b.booking_date,b.slot_start_time""").fetchall()
+        rows = c.execute(
+            'SELECT b.id,b.event_id,u.email,u.chinese_name,u.display_name,'
+            'b.booking_date,b.slot_start_time,b.slot_end_time,b.created_at '
+            'FROM slot_bookings b JOIN users u ON b.user_id=u.id '
+            'ORDER BY b.booking_date,b.slot_start_time').fetchall()
     return jsonify(rows_to_list(rows))
 
 @app.delete('/api/admin/booking/<int:bid>')
@@ -427,7 +546,7 @@ def del_booking(bid):
 # ══════════════════════════════════════════════════════════════════════════════
 @app.get('/api/public/config')
 def public_config():
-    return ok(allowed_domains=ALLOWED_DOMAINS)
+    return ok(allowed_domains=ALLOWED_DOMAINS, line_enabled=bool(LINE_CHANNEL_ID))
 
 @app.get('/api/public/event')
 def public_event():
@@ -435,50 +554,115 @@ def public_event():
         row = c.execute('SELECT id,name,start_date,end_date,is_open FROM events WHERE is_open=1 ORDER BY id DESC LIMIT 1').fetchone()
     return jsonify(row_to_dict(row))
 
-@app.post('/api/user/request-code')
-def request_code():
-    email = ((request.json or {}).get('email') or '').strip().lower()
-    if not email or '@' not in email: return err('請輸入有效的 Email 地址')
-    if ALLOWED_DOMAINS:
-        domain = email.split('@', 1)[1]
-        if domain not in ALLOWED_DOMAINS:
-            return err('此 Email 網域不被允許，請使用：' + '、'.join('@'+d for d in ALLOWED_DOMAINS))
-    with get_db() as c:
-        if not c.execute('SELECT id FROM events WHERE is_open=1 LIMIT 1').fetchone():
-            return err('目前沒有開放報名的活動')
-        user = c.execute('SELECT id FROM users WHERE email=?', (email,)).fetchone()
-        uid  = user['id'] if user else c.execute('INSERT INTO users(email) VALUES(?)', (email,)).lastrowid
-        c.execute('UPDATE verification_codes SET is_used=1 WHERE user_id=? AND is_used=0', (uid,))
-        code = generate_code()
-        c.execute('INSERT INTO verification_codes(user_id,code,expires_at) VALUES(?,?,?)', (uid,code,expires_at(10)))
-    mail_sent = False
-    try:
-        with get_db() as c:
-            cfg = c.execute('SELECT * FROM email_settings LIMIT 1').fetchone()
-        if cfg: send_code_email(dict(cfg), email, code); mail_sent = True
-    except Exception as e: print(f'[MAIL] {e}')
-    payload = {'success': True, 'mail_sent': mail_sent}
-    if IS_DEV: payload['dev_code'] = code
-    return jsonify(payload)
+def _line_error_page(msg):
+    """Show a visible error page on LINE callback failure (not silent redirect)."""
+    import html as _html
+    safe_msg = _html.escape(str(msg))
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<style>body{{font-family:'Segoe UI',sans-serif;display:flex;align-items:center;
+  justify-content:center;height:100vh;margin:0;background:#fef2f2}}
+.box{{text-align:center;padding:40px;max-width:480px}}
+.ico{{font-size:48px;margin-bottom:12px}}
+.ttl{{font-size:18px;font-weight:700;color:#991b1b;margin-bottom:8px}}
+.msg{{color:#7f1d1d;font-size:13px;background:#fee2e2;padding:12px;border-radius:8px;word-break:break-all}}
+.btn{{margin-top:20px;display:inline-block;background:#1d4ed8;color:#fff;
+  padding:10px 28px;border-radius:9px;text-decoration:none;font-weight:700}}</style>
+</head><body><div class="box">
+<div class="ico">&#10060;</div>
+<div class="ttl">LINE 登入失敗</div>
+<div class="msg">{safe_msg}</div>
+<a href="/" class="btn">返回首頁</a>
+</div></body></html>""", 400
 
-@app.post('/api/user/verify')
-def verify():
-    d = request.json or {}
-    email = (d.get('email') or '').strip().lower()
-    code  = (d.get('code')  or '').strip().upper()
+# ── LINE Login OAuth2 ─────────────────────────────────────────────────────
+import hashlib, hmac, base64, secrets as _secrets
+
+@app.get('/api/auth/line/url')
+def line_login_url():
+    if not LINE_CHANNEL_ID or not LINE_REDIRECT_URI:
+        return err('LINE Login 尚未設定（請確認 LINE_CHANNEL_ID 與 LINE_REDIRECT_URI）')
+    import urllib.parse as _up
+    state = _secrets.token_urlsafe(16)
+    session['line_state'] = state
+    # redirect_uri 必須 URL encode
+    params = (f'response_type=code&client_id={LINE_CHANNEL_ID}'
+              f'&redirect_uri={_up.quote(LINE_REDIRECT_URI, safe="")}'
+              f'&state={state}&scope=profile%20openid&bot_prompt=normal')
+    return ok(url='https://access.line.me/oauth2/v2.1/authorize?' + params)
+
+# strict_slashes=False: 同時接受 /callback 和 /callback/
+@app.get('/api/auth/line/callback', strict_slashes=False)
+def line_callback():
+    code  = request.args.get('code')
+    error = request.args.get('error')
+    if error or not code:
+        desc = request.args.get('error_description', error or '授權失敗')
+        return _line_error_page(desc)
+    try:
+        token_resp = _requests.post('https://api.line.me/oauth2/v2.1/token', data={
+            'grant_type':    'authorization_code',
+            'code':          code,
+            'redirect_uri':  LINE_REDIRECT_URI,
+            'client_id':     LINE_CHANNEL_ID,
+            'client_secret': LINE_CHANNEL_SECRET,
+        }, timeout=15)
+        token_data = token_resp.json()
+        access_token = token_data.get('access_token')
+        if not access_token:
+            raise Exception(token_data.get('error_description') or
+                            token_data.get('error') or '取得 token 失敗')
+        profile_resp = _requests.get('https://api.line.me/v2/profile',
+            headers={'Authorization': f'Bearer {access_token}'}, timeout=10)
+        profile = profile_resp.json()
+        line_uid = profile.get('userId')
+        display  = profile.get('displayName', '')
+        pic      = profile.get('pictureUrl', '')
+        if not line_uid:
+            raise Exception('無法取得 LINE userId')
+    except Exception as e:
+        return _line_error_page(str(e))
+
     with get_db() as c:
-        row = c.execute("""
-            SELECT vc.id FROM verification_codes vc JOIN users u ON vc.user_id=u.id
-            WHERE u.email=? AND vc.code=? AND vc.is_used=0 AND vc.expires_at > datetime('now')
-        """, (email, code)).fetchone()
-        if not row: return err('驗證碼錯誤或已逾期（10 分鐘有效）', 401)
-        c.execute('UPDATE verification_codes SET is_used=1 WHERE id=?', (row['id'],))
-        c.execute("UPDATE users SET last_login_at=datetime('now') WHERE email=?", (email,))
-    session['user_email'] = email; session.permanent = True; return ok()
+        user = c.execute('SELECT id, chinese_name FROM users WHERE line_user_id=?', (line_uid,)).fetchone()
+        if user:
+            uid = user['id']
+            c.execute("UPDATE users SET display_name=?,picture_url=?,last_login_at=datetime('now') WHERE id=?",
+                      (display, pic, uid))
+            needs_name = not user['chinese_name']
+        else:
+            uid = c.execute(
+                'INSERT INTO users(line_user_id,display_name,picture_url) VALUES(?,?,?)',
+                (line_uid, display, pic)).lastrowid
+            needs_name = True
+
+    session['user_id']   = uid
+    session['user_line'] = line_uid
+    session.permanent    = True
+
+    from flask import redirect as _redir
+    return _redir('/')
+
+# LINE callback directly uses Flask redirect — no sessionStorage needed
+
+@app.post('/api/user/set-name')
+def set_name():
+    uid = session.get('user_id')
+    if not uid: return err('請先登入', 401)
+    import re
+    name = (request.json or {}).get('name', '').strip()
+    if not name: return err('請輸入姓名')
+    if len(name) > 4: return err('姓名最多 4 個字')
+    if re.search(r'[A-Za-z0-9]', name): return err('姓名不允許英文或數字')
+    with get_db() as c:
+        c.execute('UPDATE users SET chinese_name=? WHERE id=?', (name, uid))
+    return ok()
 
 @app.post('/api/user/logout')
 def user_logout():
-    session.pop('user_email', None); return ok()
+    session.pop('user_id',   None)
+    session.pop('user_line', None)
+    return ok()
 
 @app.get('/api/user/event')
 @user_required
@@ -494,18 +678,18 @@ def calendar():
     if not eid or not ws: return err('缺少參數')
     try: we = (datetime.strptime(ws,'%Y-%m-%d')+timedelta(days=6)).strftime('%Y-%m-%d')
     except ValueError: return err('日期格式錯誤')
-    email = session['user_email']
+    uid = session['user_id']
     with get_db() as c:
-        bks = c.execute("""
-            SELECT b.booking_date,b.slot_start_time,b.slot_end_time,u.email,
-                   CASE WHEN u.email=? THEN 1 ELSE 0 END AS is_mine
-            FROM slot_bookings b JOIN users u ON b.user_id=u.id
-            WHERE b.event_id=? AND b.booking_date BETWEEN ? AND ?
-        """, (email, eid, ws, we)).fetchall()
-        cnt = c.execute("""
-            SELECT COUNT(*) as cnt FROM slot_bookings b JOIN users u ON b.user_id=u.id
-            WHERE b.event_id=? AND u.email=?
-        """, (eid, email)).fetchone()['cnt']
+        bks = c.execute(
+            'SELECT b.booking_date,b.slot_start_time,b.slot_end_time,'
+            'u.chinese_name,u.display_name,'
+            'CASE WHEN b.user_id=? THEN 1 ELSE 0 END AS is_mine '
+            'FROM slot_bookings b JOIN users u ON b.user_id=u.id '
+            'WHERE b.event_id=? AND b.booking_date BETWEEN ? AND ?',
+            (uid, eid, ws, we)).fetchall()
+        cnt = c.execute(
+            'SELECT COUNT(*) as cnt FROM slot_bookings WHERE event_id=? AND user_id=?',
+            (eid, uid)).fetchone()['cnt']
     return jsonify(bookings=rows_to_list(bks), my_total=cnt)
 
 @app.post('/api/user/book')
@@ -513,16 +697,15 @@ def calendar():
 def book():
     d = request.json or {}
     eid,date,ss,se = d.get('eventId'),d.get('date'),d.get('slotStart'),d.get('slotEnd')
-    email = session['user_email']
+    uid = session['user_id']
     with get_db() as c:
         ev = c.execute('SELECT max_slots_per_user,is_open FROM events WHERE id=?', (eid,)).fetchone()
         if not ev or not ev['is_open']: return err('活動不存在或已關閉')
-        cnt = c.execute("""SELECT COUNT(*) as cnt FROM slot_bookings b JOIN users u ON b.user_id=u.id
-            WHERE b.event_id=? AND u.email=?""", (eid, email)).fetchone()['cnt']
+        cnt = c.execute('SELECT COUNT(*) as cnt FROM slot_bookings WHERE event_id=? AND user_id=?',
+            (eid, uid)).fetchone()['cnt']
         if cnt >= ev['max_slots_per_user']: return err(f"已達上限（最多 {ev['max_slots_per_user']} 個時段）")
         if c.execute('SELECT id FROM slot_bookings WHERE event_id=? AND booking_date=? AND slot_start_time=?',
                      (eid,date,ss)).fetchone(): return err('該時段已被他人預約')
-        uid = c.execute('SELECT id FROM users WHERE email=?', (email,)).fetchone()['id']
         try:
             c.execute('INSERT INTO slot_bookings(event_id,user_id,booking_date,slot_start_time,slot_end_time) VALUES(?,?,?,?,?)',
                       (eid,uid,date,ss,se))
@@ -533,11 +716,11 @@ def book():
 @user_required
 def cancel():
     d = request.json or {}
-    eid,date,ss,email = d.get('eventId'),d.get('date'),d.get('slotStart'),session['user_email']
+    eid,date,ss = d.get('eventId'),d.get('date'),d.get('slotStart')
+    uid = session['user_id']
     with get_db() as c:
-        u = c.execute('SELECT id FROM users WHERE email=?', (email,)).fetchone()
-        if u: c.execute('DELETE FROM slot_bookings WHERE event_id=? AND user_id=? AND booking_date=? AND slot_start_time=?',
-                        (eid,u['id'],date,ss))
+        c.execute('DELETE FROM slot_bookings WHERE event_id=? AND user_id=? AND booking_date=? AND slot_start_time=?',
+                  (eid,uid,date,ss))
     return ok()
 
 
@@ -581,19 +764,22 @@ def month_availability():
 @app.get('/api/user/day-slots')
 @user_required
 def day_slots():
-    eid=request.args.get('eventId',type=int); date=request.args.get('date','')
-    email=session['user_email']
+    eid = request.args.get('eventId', type=int)
+    date = request.args.get('date', '')
+    uid = session['user_id']
     if not eid or not date: return err('缺少參數')
     with get_db() as c:
-        bks=c.execute("""
-            SELECT b.slot_start_time,b.slot_end_time,u.email,
-                   CASE WHEN u.email=? THEN 1 ELSE 0 END AS is_mine
-            FROM slot_bookings b JOIN users u ON b.user_id=u.id
-            WHERE b.event_id=? AND b.booking_date=?
-        """,(email,eid,date)).fetchall()
-        my_total=c.execute("""SELECT COUNT(*) as cnt FROM slot_bookings b JOIN users u ON b.user_id=u.id
-            WHERE b.event_id=? AND u.email=?""",(eid,email)).fetchone()['cnt']
-    return jsonify(bookings=rows_to_list(bks),my_total=my_total)
+        bks = c.execute(
+            'SELECT b.slot_start_time, b.slot_end_time, '
+            'u.chinese_name, u.display_name, '
+            'CASE WHEN b.user_id=? THEN 1 ELSE 0 END AS is_mine '
+            'FROM slot_bookings b JOIN users u ON b.user_id=u.id '
+            'WHERE b.event_id=? AND b.booking_date=?',
+            (uid, eid, date)).fetchall()
+        my_total = c.execute(
+            'SELECT COUNT(*) as cnt FROM slot_bookings WHERE event_id=? AND user_id=?',
+            (eid, uid)).fetchone()['cnt']
+    return jsonify(bookings=rows_to_list(bks), my_total=my_total)
 
 
 # ── All Availability (entire event range) ──────────────────────────────────────
@@ -604,15 +790,15 @@ def all_availability():
     from collections import defaultdict
     eid   = request.args.get('eventId', type=int)
     if not eid: return err('缺少參數')
-    email = session['user_email']
+    uid = session['user_id']
     with get_db() as c:
         ev = c.execute('SELECT start_date,end_date FROM events WHERE id=?',(eid,)).fetchone()
         if not ev: return err('活動不存在')
         dow_cnt = _get_dow_cnt(c, eid)
         bk_rows = c.execute(
-            "SELECT b.booking_date, CASE WHEN u.email=? THEN 1 ELSE 0 END AS is_mine "
-            "FROM slot_bookings b JOIN users u ON b.user_id=u.id WHERE b.event_id=?",
-            (email, eid)).fetchall()
+            "SELECT b.booking_date, CASE WHEN b.user_id=? THEN 1 ELSE 0 END AS is_mine "
+            "FROM slot_bookings b WHERE b.event_id=?",
+            (uid, eid)).fetchall()
     day_booked = defaultdict(int)
     my_dates = set()
     for r in bk_rows:

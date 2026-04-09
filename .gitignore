@@ -11,3 +11,16 @@ __pycache__/
 *.db
 *.db-shm
 *.db-wal
+
+# Visual Studio 暫存檔
+.vs/
+
+# Build 輸出
+**/bin/
+**/obj/
+
+# 其他
+*.suo
+*.db
+*.cache
+*.user
