@@ -995,7 +995,7 @@ const MC={
     const months=[];let cur=new Date(sD.getFullYear(),sD.getMonth(),1);const eMon=new Date(eD.getFullYear(),eD.getMonth(),1);
     while(cur<=eMon){months.push({yr:cur.getFullYear(),mo:cur.getMonth()+1});cur.setMonth(cur.getMonth()+1);}
     const body=document.getElementById('mc-body');
-    body.innerHTML=`<div class="months-outer"><div class="months-legend"><div class="mleg"><div class="mleg-dot" style="background:#22c55e"></div>尚未有人申請</div><div class="mleg"><div class="mleg-dot" style="background:#f97316"></div>已有人申請（未額滿）</div><div class="mleg"><div class="mleg-dot" style="background:#ef4444"></div>時段已額滿</div><div class="mleg"><div class="mleg-mine">7</div>我有預約（藍框）</div></div><div class="months-grid" id="months-grid"></div></div>`;
+    body.innerHTML=`<div class="months-outer"><div class="months-legend"><div class="mleg"><div class="mleg-dot" style="background:#22c55e"></div>尚未有人申請</div><div class="mleg"><div class="mleg-dot" style="background:#f97316"></div>已有人申請（未額滿）</div><div class="mleg"><div class="mleg-dot" style="background:#ef4444"></div>時段已額滿</div><div class="mleg"><div class="mleg-mine"></div>我有預約（藍框）</div></div><div class="months-grid" id="months-grid"></div></div>`;
     const grid=document.getElementById('months-grid');months.forEach(({yr,mo})=>grid.appendChild(MC.buildMonth(yr,mo,evS,evE)));
   },
   buildMonth(yr,mo,evS,evE){
