@@ -244,6 +244,9 @@ a{color:inherit;text-decoration:none}
 
 /* Booked email tag in day detail */
 .booker-em{font-size:11px;color:var(--t3);font-family:'Courier New',monospace;background:var(--s1);border:1px solid var(--bd);padding:2px 8px;border-radius:5px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.booker-avatar{width:28px;height:28px;border-radius:50%;object-fit:cover;border:1.5px solid var(--bd);flex-shrink:0}
+.booker-info{display:flex;align-items:center;gap:7px}
+.booker-name{font-size:12px;color:var(--t2);font-weight:600;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Excluded date pills (admin) */
 .ex-pills{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;min-height:28px}
 .ex-pill{display:inline-flex;align-items:center;gap:6px;background:var(--er-bg);border:1px solid var(--er-bd);color:var(--er-tx);border-radius:7px;padding:4px 10px;font-size:12px}
@@ -714,8 +717,8 @@ const Toast={show(msg,t='i'){const e=document.createElement('div');e.className='
 const L={show(){document.getElementById('ov').classList.remove('hidden');},hide(){document.getElementById('ov').classList.add('hidden');}};
 
 /* ── State ──────────────────────────────── */
-const VIEWS=['vh','val','va','vue','vname','vmc','vdd'];
-const S={userId:null,chinName:null,dispName:null,picUrl:null,event:null,lineEnabled:false,myTotal:0,_adminAutoLogout:30};
+const VIEWS=['vh','val','va','vue','vmc','vdd'];
+const S={userId:null,dispName:null,picUrl:null,event:null,lineEnabled:false,myTotal:0,_adminAutoLogout:30};
 
 /* ── App ────────────────────────────────── */
 const App={
@@ -733,7 +736,7 @@ const App={
         return;
       }
       if(st.user_id){
-        S.userId=st.user_id;S.chinName=st.chinese_name;S.dispName=st.display_name;S.picUrl=st.picture_url;
+        S.userId=st.user_id;S.dispName=st.display_name;S.picUrl=st.picture_url;
         if(!st.chinese_name){
           const av=document.getElementById('name-avatar');
           if(S.picUrl){av.src=S.picUrl;av.style.display='';}
@@ -964,16 +967,16 @@ const User={
     if(!name){errEl.textContent='請輸入姓名';errEl.style.display='';return;}
     if(name.length>4){errEl.textContent='最多 4 個字';errEl.style.display='';return;}
     if(/[A-Za-z0-9]/.test(name)){errEl.textContent='不允許英文或數字';errEl.style.display='';return;}
-    try{L.show();await api.post('/api/user/set-name',{name});S.chinName=name;const st=await api.get('/api/auth/status');S.userId=st.user_id;await User.enterCal();}
+    try{L.show();await api.post('/api/user/set-name',{name});const st=await api.get('/api/auth/status');S.userId=st.user_id;await User.enterCal();}
     catch(e){errEl.textContent=e.message;errEl.style.display='';}finally{L.hide();}
   },
   async enterCal(){
     try{L.show();const ev=await api.get('/api/user/event');if(!ev){Toast.show('目前沒有開放的活動','e');App.show('vh');return;}
-    S.event=ev;document.getElementById('mc-ev-name').textContent=ev.name;document.getElementById('mc-ev-rng').textContent=`${(ev.start_date||'').substring(0,10)} ～ ${(ev.end_date||'').substring(0,10)}`;document.getElementById('mc-email').textContent=S.chinName||(S.dispName||'');document.getElementById('mc-qmax').textContent=ev.max_slots_per_user;document.getElementById('dd-qmax').textContent=ev.max_slots_per_user;document.getElementById('dd-email').textContent=S.chinName||(S.dispName||'');
+    S.event=ev;document.getElementById('mc-ev-name').textContent=ev.name;document.getElementById('mc-ev-rng').textContent=`${(ev.start_date||'').substring(0,10)} ～ ${(ev.end_date||'').substring(0,10)}`;document.getElementById('mc-email').textContent=S.dispName||'';document.getElementById('mc-qmax').textContent=ev.max_slots_per_user;document.getElementById('dd-qmax').textContent=ev.max_slots_per_user;document.getElementById('dd-email').textContent=S.dispName||'';
     App.show('vmc');await MC.renderAll();}
     catch(e){Toast.show(e.message,'e');App.show('vh');}finally{L.hide();}
   },
-  async logout(){await api.post('/api/user/logout').catch(()=>{});S.userId=null;S.chinName=null;S.event=null;App.show('vh');}
+  async logout(){await api.post('/api/user/logout').catch(()=>{});S.userId=null;S.event=null;App.show('vh');}
 };
 
 /* ── Month Calendar ─────────────────────────────── */
@@ -1058,13 +1061,15 @@ const DD={
     document.getElementById('dd-q').textContent=S.myTotal;document.getElementById('dd-q').className=S.myTotal>=max?'full':'';
     document.getElementById('dd-qwarn').style.display=S.myTotal>=max?'':'none';
     document.getElementById('mc-q').textContent=S.myTotal;document.getElementById('mc-q').className=S.myTotal>=max?'full':'';
-    const bm={};bkData.bookings.forEach(b=>{const st=String(b.slot_start_time).substring(0,5);bm[st]={mine:!!b.is_mine,name:b.chinese_name||b.display_name||''};});
+    const bm={};bkData.bookings.forEach(b=>{const st=String(b.slot_start_time).substring(0,5);bm[st]={mine:!!b.is_mine,name:b.display_name||'',pic:b.picture_url||''};});
     const dur=sched.slot_duration;
     box.innerHTML=allSlots.map(sl=>{
       const info=bm[sl.start];
       if(!info){const full=S.myTotal>=max;return `<div class="slot-row"><div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div><div class="slot-r"><span class="sp sp-f">可預約</span>${full?'':` <button class="btn btn-p btn-xs" onclick="DD.book('${date}','${sl.start}','${sl.end}')">${ico('ic-check')} 預約</button>`}</div></div>`;}
       else if(info.mine){return `<div class="slot-row"><div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div><div class="slot-r"><span class="sp sp-m">${ico('ic-check')} 已選取</span> <button class="btn btn-g btn-xs" onclick="DD.cancel('${date}','${sl.start}')">${ico('ic-x')} 取消</button></div></div>`;}
-      else{return `<div class="slot-row"><div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div><div class="slot-r"><span class="sp sp-t">已被預約</span><span class="booker-em">${info.name||'—'}</span></div></div>`;}
+      else{const av=info.pic?`<img src="${info.pic}" class="booker-avatar" alt="">`:
+        `<div style="width:28px;height:28px;border-radius:50%;background:var(--ac-bg);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--ac);flex-shrink:0">👤</div>`;
+        return `<div class="slot-row"><div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div><div class="slot-r"><span class="sp sp-t">已被預約</span><div class="booker-info">${av}<span class="booker-name">${info.name||'—'}</span></div></div></div>`;}
     }).join('');
   },
   async book(date,start,end){
