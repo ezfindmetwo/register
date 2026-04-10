@@ -622,6 +622,72 @@ def import_bookings():
                 errors.append(f'第{i}行錯誤：{e}')
     return ok(imported=imported, skipped=skipped, errors=errors[:10])
 
+@app.get('/api/admin/export-event')
+@admin_required
+def export_event():
+    with get_db() as c:
+        ev = _load_event_full(c)
+        if not ev: return err('尚無活動設定')
+        ex = c.execute('SELECT excluded_date,note FROM event_excluded_dates WHERE event_id=? ORDER BY excluded_date',(ev['id'],)).fetchall()
+    import json
+    from flask import Response
+    data = {
+        'name':               ev.get('name',''),
+        'start_date':         ev.get('start_date',''),
+        'end_date':           ev.get('end_date',''),
+        'schedule_mode':      ev.get('schedule_mode','uniform'),
+        'max_slots_per_user': ev.get('max_slots_per_user',3),
+        'slot_start_time':    ev.get('slot_start_time','09:00'),
+        'slot_end_time':      ev.get('slot_end_time','17:00'),
+        'slot_duration':      ev.get('slot_duration',30),
+        'day_schedules':      ev.get('day_schedules',[]),
+        'excluded_dates':     rows_to_list(ex),
+    }
+    out = json.dumps(data, ensure_ascii=False, indent=2)
+    return Response(out, mimetype='application/json',
+                    headers={'Content-Disposition': 'attachment; filename="event_settings.json"'})
+
+@app.post('/api/admin/import-event')
+@admin_required
+def import_event():
+    import json
+    f = request.files.get('file')
+    if not f: return err('請上傳 JSON 檔案')
+    try:
+        d = json.loads(f.stream.read().decode('utf-8'))
+    except Exception as e:
+        return err('JSON 格式錯誤：' + str(e))
+    for k in ['name','start_date','end_date']:
+        if not d.get(k): return err('缺少必要欄位：' + k)
+    mode  = d.get('schedule_mode','uniform')
+    ds_raw= d.get('day_schedules',[])
+    ss    = d.get('slot_start_time','09:00')
+    se    = d.get('slot_end_time','17:00')
+    dur   = d.get('slot_duration',30)
+    day_schedules = [{'dayOfWeek': r['day_of_week'],
+                      'slotStart': r.get('slot_start_time',ss),
+                      'slotEnd':   r.get('slot_end_time',se),
+                      'slotDuration': r.get('slot_duration',dur)} for r in ds_raw]
+    excluded = d.get('excluded_dates',[])
+    with get_db() as c:
+        ex = c.execute('SELECT id FROM events ORDER BY id DESC LIMIT 1').fetchone()
+        if ex:
+            eid = ex['id']
+            c.execute('UPDATE events SET name=?,start_date=?,end_date=?,schedule_mode=?,slot_start_time=?,slot_end_time=?,slot_duration=?,max_slots_per_user=? WHERE id=?',
+                      (d['name'],d['start_date'],d['end_date'],mode,ss,se,dur,int(d.get('max_slots_per_user',3)),eid))
+        else:
+            eid = c.execute('INSERT INTO events(name,start_date,end_date,schedule_mode,slot_start_time,slot_end_time,slot_duration,max_slots_per_user) VALUES(?,?,?,?,?,?,?,?)',
+                            (d['name'],d['start_date'],d['end_date'],mode,ss,se,dur,int(d.get('max_slots_per_user',3)))).lastrowid
+        c.execute('DELETE FROM event_day_schedules WHERE event_id=?',(eid,))
+        for ds in day_schedules:
+            c.execute('INSERT INTO event_day_schedules(event_id,day_of_week,slot_start_time,slot_end_time,slot_duration) VALUES(?,?,?,?,?)',
+                      (eid,int(ds['dayOfWeek']),ds['slotStart'],ds['slotEnd'],int(ds['slotDuration'])))
+        c.execute('DELETE FROM event_excluded_dates WHERE event_id=?',(eid,))
+        for ex2 in excluded:
+            c.execute('INSERT OR IGNORE INTO event_excluded_dates(event_id,excluded_date,note) VALUES(?,?,?)',
+                      (eid,ex2.get('excluded_date',''),ex2.get('note','')))
+    return ok()
+
 @app.get('/api/admin/settings')
 @admin_required
 def get_admin_settings():

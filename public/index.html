@@ -537,6 +537,30 @@ a{color:inherit;text-decoration:none}
           </div>
           <div id="imp-res" class="hidden" style="margin-top:10px"></div>
         </div>
+
+        <hr class="divider" style="margin:0">
+
+        <!-- Export event settings -->
+        <div>
+          <div class="fl" style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:8px">匯出活動設定</div>
+          <p style="font-size:12px;color:var(--t3);margin-bottom:10px">將活動名稱、日期、時段、排除日期等設定匯出為 JSON 檔案，可在其他環境匯入還原。</p>
+          <a href="/api/admin/export-event" class="btn btn-g btn-sm" style="text-decoration:none;display:inline-flex">
+            ↓ 下載 event_settings.json
+          </a>
+        </div>
+
+        <hr class="divider" style="margin:0">
+
+        <!-- Import event settings -->
+        <div>
+          <div class="fl" style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:8px">匯入活動設定</div>
+          <p style="font-size:12px;color:var(--t3);margin-bottom:10px">上傳活動設定 JSON，將覆蓋現有設定（預約紀錄不受影響）。</p>
+          <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+            <input type="file" id="imp-ev-file" accept=".json" style="font-size:12px;color:var(--t2)">
+            <button class="btn btn-p btn-sm" onclick="Admin.importEvent()"><svg class="ico"><use href="#ic-check"/></svg> 開始匯入</button>
+          </div>
+          <div id="imp-ev-res" class="hidden" style="margin-top:10px"></div>
+        </div>
       </div>
     </div>
 
@@ -606,8 +630,8 @@ a{color:inherit;text-decoration:none}
 <div id="vdd" class="hidden">
   <div class="dd-top">
     <div style="display:flex;align-items:center;gap:11px">
-      <button class="back" style="margin:0" onclick="App.show('vmc');MC.refreshQ()">
-        <svg class="ico" style="font-size:13px"><use href="#ic-back"/></svg> 返回日曆
+      <button class="btn btn-g btn-sm" style="gap:6px;font-weight:700" onclick="App.show('vmc');MC.refreshQ()">
+        <svg class="ico" style="font-size:15px"><use href="#ic-back"/></svg> ← 返回日曆
       </button>
       <div>
         <div class="dd-date-ttl" id="dd-ttl"></div>
@@ -856,6 +880,22 @@ const Admin={
     const res=document.getElementById('sys-res');res.className='hidden';
     try{L.show();await api.put('/api/admin/settings',{auto_logout:al});S._adminAutoLogout=al;Admin.resetActivityTimer();res.className='rok';res.textContent='✓ 系統設定已儲存';res.classList.remove('hidden');Toast.show('設定已儲存','s');}
     catch(e){res.className='rfail';res.textContent=e.message;res.classList.remove('hidden');}finally{L.hide();}
+  },
+  async importEvent(){
+    const file=document.getElementById('imp-ev-file').files[0];
+    const res=document.getElementById('imp-ev-res');res.className='hidden';
+    if(!file){Toast.show('請選擇 JSON 檔案','e');return;}
+    const fd=new FormData();fd.append('file',file);
+    try{L.show();
+      const r=await fetch('/api/admin/import-event',{method:'POST',body:fd});
+      const d=await r.json();
+      if(!r.ok)throw new Error(d.error||'匯入失敗');
+      res.className='rok';res.textContent='✓ 活動設定已成功匯入，請重新整理頁面查看';
+      res.classList.remove('hidden');
+      await Admin.loadEv();
+      Toast.show('活動設定匯入成功','s');
+    }catch(e){res.className='rfail';res.textContent=e.message;res.classList.remove('hidden');}
+    finally{L.hide();}
   },
   async importCSV(){
     const file=document.getElementById('imp-file').files[0];const res=document.getElementById('imp-res');res.className='hidden';
