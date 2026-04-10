@@ -929,8 +929,10 @@ def index(): return send_from_directory('public', 'index.html')
 @app.errorhandler(404)
 def not_found(_): return send_from_directory('public', 'index.html')
 
+# 無論用 gunicorn 或直接執行都會初始化 DB
+init_db()
+
 if __name__ == '__main__':
-    init_db()
     port = int(os.getenv('FLASK_PORT', 5000))
     print(f"\n🚀  http://localhost:{port}  |  Dev={IS_DEV}\n")
     app.run(host='0.0.0.0', port=port, debug=IS_DEV)
