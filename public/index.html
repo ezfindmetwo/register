@@ -226,7 +226,21 @@ a{color:inherit;text-decoration:none}
 .mmc-num.today.mybook{background:var(--ac);color:#fff;border-color:var(--ac)}
 .mmc-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
 .mmc-dot.avail{background:#22c55e}
+.mmc-dot.partial{background:#f97316}
 .mmc-dot.full{background:#ef4444}
+/* Calendar day tooltip */
+.mmc-day[data-tip]{position:relative;cursor:pointer}
+.mmc-day[data-tip]::after{
+  content:attr(data-tip);
+  position:absolute;bottom:calc(100% + 6px);left:50%;
+  transform:translateX(-50%);
+  background:#1e293b;color:#f1f5f9;
+  padding:5px 10px;border-radius:7px;font-size:11px;font-weight:600;
+  white-space:nowrap;pointer-events:none;
+  opacity:0;transition:opacity .18s;z-index:50;
+  box-shadow:0 4px 12px rgba(0,0,0,.35)
+}
+.mmc-day[data-tip]:hover::after{opacity:1}
 
 /* Booked email tag in day detail */
 .booker-em{font-size:11px;color:var(--t3);font-family:'Courier New',monospace;background:var(--s1);border:1px solid var(--bd);padding:2px 8px;border-radius:5px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -983,7 +997,7 @@ const MC={
     const months=[];let cur=new Date(sD.getFullYear(),sD.getMonth(),1);const eMon=new Date(eD.getFullYear(),eD.getMonth(),1);
     while(cur<=eMon){months.push({yr:cur.getFullYear(),mo:cur.getMonth()+1});cur.setMonth(cur.getMonth()+1);}
     const body=document.getElementById('mc-body');
-    body.innerHTML=`<div class="months-outer"><div class="months-legend"><div class="mleg"><div class="mleg-dot" style="background:#22c55e"></div>尚有可預約時段</div><div class="mleg"><div class="mleg-dot" style="background:#ef4444"></div>時段已額滿</div><div class="mleg"><div class="mleg-mine">7</div>我有預約（藍框）</div></div><div class="months-grid" id="months-grid"></div></div>`;
+    body.innerHTML=`<div class="months-outer"><div class="months-legend"><div class="mleg"><div class="mleg-dot" style="background:#22c55e"></div>尚未有人申請</div><div class="mleg"><div class="mleg-dot" style="background:#f97316"></div>已有人申請（未額滿）</div><div class="mleg"><div class="mleg-dot" style="background:#ef4444"></div>時段已額滿</div><div class="mleg"><div class="mleg-mine">7</div>我有預約（藍框）</div></div><div class="months-grid" id="months-grid"></div></div>`;
     const grid=document.getElementById('months-grid');months.forEach(({yr,mo})=>grid.appendChild(MC.buildMonth(yr,mo,evS,evE)));
   },
   buildMonth(yr,mo,evS,evE){
@@ -998,14 +1012,26 @@ const MC={
     for(let i=0;i<offset;i++){const c=document.createElement('div');c.className='mmc-day other';const n=document.createElement('div');n.className='mmc-num';n.textContent=prevDim-offset+1+i;c.appendChild(n);dg.appendChild(c);}
     for(let d=1;d<=dim;d++){
       const ds=`${yr}-${pad(mo)}-${pad(d)}`;const dt=new Date(yr,mo-1,d);
-      const isToday=ds===TODAY,isPast=dt<todayD&&!isToday,inRange=ds>=evS&&ds<=evE,status=MC.avail[ds],isMyDay=MC.myDates.has(ds),isExcluded=MC.excludedDates.has(ds);
+      const isToday=ds===TODAY,isPast=dt<todayD&&!isToday,inRange=ds>=evS&&ds<=evE;
+      const dayInfo=MC.avail[ds];  // {status,total,booked} or undefined
+      const status=dayInfo?(typeof dayInfo==='string'?dayInfo:dayInfo.status):null;
+      const isMyDay=MC.myDates.has(ds),isExcluded=MC.excludedDates.has(ds);
       const holidayName=isExcluded?(MC.excludedDates.get(ds)||''):'';
       const cell=document.createElement('div');
       cell.className='mmc-day'+(isExcluded?' holiday':(!inRange||!status?' inactive':' can'))+(isPast&&!isToday?' past':'');
       if(isExcluded&&holidayName)cell.dataset.holiday=holidayName;
+      // Tooltip showing slot counts
+      if(inRange&&dayInfo&&!isExcluded&&typeof dayInfo==='object'){
+        const total=dayInfo.total,booked=dayInfo.booked;
+        cell.dataset.tip=`共${total}個名額，已申請${booked}人`;
+      }
       if(inRange&&status&&!isExcluded)cell.onclick=()=>MC.openDay(ds,dt);
       const num=document.createElement('div');num.className='mmc-num'+(isToday?' today':'')+(isMyDay&&!isExcluded?' mybook':'');num.textContent=d;cell.appendChild(num);
-      if(inRange&&status&&!isExcluded){const dot=document.createElement('div');dot.className='mmc-dot '+(status==='open'?'avail':'full');cell.appendChild(dot);}
+      if(inRange&&status&&!isExcluded){
+        const dot=document.createElement('div');
+        dot.className='mmc-dot '+(status==='full'?'full':status==='partial'?'partial':'avail');
+        cell.appendChild(dot);
+      }
       dg.appendChild(cell);
     }
     const tot=offset+dim,rem=(7-tot%7)%7;

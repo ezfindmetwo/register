@@ -985,7 +985,13 @@ def all_availability():
             if our_dow in dow_cnt:
                 total  = dow_cnt[our_dow]
                 booked = day_booked.get(ds2, 0)
-                result[ds2] = 'full' if booked >= total else 'open'
+                if booked >= total:
+                    status = 'full'
+                elif booked > 0:
+                    status = 'partial'
+                else:
+                    status = 'open'
+                result[ds2] = {'status': status, 'total': total, 'booked': booked}
         cur += _td(days=1)
     return jsonify(availability=result, my_dates=list(my_dates), excluded_dates=excluded_list)
 
