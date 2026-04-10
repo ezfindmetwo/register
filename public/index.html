@@ -635,7 +635,7 @@ a{color:inherit;text-decoration:none}
       <div class="mc-quota-txt">已選：<strong id="mc-q">0</strong> / <span id="mc-qmax">3</span> 個時段
         <span id="mc-qwarn" style="color:var(--warn);font-size:11px;display:none">（已達上限）</span>
       </div>
-      <span style="color:var(--t3);font-size:12px" id="mc-email"></span>
+      <div id="mc-email" style="display:flex;align-items:center;gap:7px;font-size:13px;color:var(--t2)"></div>
       <button class="tbtn" onclick="Theme.toggle()"><svg class="ico" style="font-size:12px"><use href="#ic-moon"/></svg><span class="tl">夜色模式</span></button>
       <button class="btn btn-g btn-sm" onclick="User.logout()">登出</button>
     </div>
@@ -737,14 +737,6 @@ const App={
       }
       if(st.user_id){
         S.userId=st.user_id;S.dispName=st.display_name;S.picUrl=st.picture_url;
-        if(!st.chinese_name){
-          const av=document.getElementById('name-avatar');
-          if(S.picUrl){av.src=S.picUrl;av.style.display='';}
-          const nm=document.getElementById('name-line-nm');if(nm)nm.textContent=S.dispName||'';
-          document.getElementById('name-inp').value='';
-          document.getElementById('name-err').style.display='none';
-          App.show('vname');setTimeout(()=>document.getElementById('name-inp').focus(),100);return;
-        }
         await User.enterCal();return;
       }
     }catch(e){console.warn('auth/status error:',e);}
@@ -972,7 +964,9 @@ const User={
   },
   async enterCal(){
     try{L.show();const ev=await api.get('/api/user/event');if(!ev){Toast.show('目前沒有開放的活動','e');App.show('vh');return;}
-    S.event=ev;document.getElementById('mc-ev-name').textContent=ev.name;document.getElementById('mc-ev-rng').textContent=`${(ev.start_date||'').substring(0,10)} ～ ${(ev.end_date||'').substring(0,10)}`;document.getElementById('mc-email').textContent=S.dispName||'';document.getElementById('mc-qmax').textContent=ev.max_slots_per_user;document.getElementById('dd-qmax').textContent=ev.max_slots_per_user;document.getElementById('dd-email').textContent=S.dispName||'';
+    S.event=ev;document.getElementById('mc-ev-name').textContent=ev.name;document.getElementById('mc-ev-rng').textContent=`${(ev.start_date||'').substring(0,10)} ～ ${(ev.end_date||'').substring(0,10)}`;const _mce=document.getElementById('mc-email');
+      const _av=S.picUrl?`<img src="${S.picUrl}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;border:2px solid var(--bd);flex-shrink:0">`:`<div style="width:32px;height:32px;border-radius:50%;background:var(--ac-bg);color:var(--ac);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">👤</div>`;
+      _mce.innerHTML=_av+`<span style="font-weight:600;color:var(--t1);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${S.dispName||''}</span>`document.getElementById('mc-qmax').textContent=ev.max_slots_per_user;document.getElementById('dd-qmax').textContent=ev.max_slots_per_user;document.getElementById('dd-email').textContent=S.dispName||'';
     App.show('vmc');await MC.renderAll();}
     catch(e){Toast.show(e.message,'e');App.show('vh');}finally{L.hide();}
   },
