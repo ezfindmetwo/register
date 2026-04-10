@@ -367,8 +367,10 @@ a{color:inherit;text-decoration:none}
       <button class="tabbtn" onclick="Admin.tab('em',this)"><svg class="ico" style="font-size:13px"><use href="#ic-mail"/></svg> Email 設定</button>
       <button class="tabbtn" onclick="Admin.tab('bk',this)"><svg class="ico" style="font-size:13px"><use href="#ic-list"/></svg> 預約清單</button>
       <button class="tabbtn" onclick="Admin.tab('pw',this)"><svg class="ico" style="font-size:13px"><use href="#ic-lock"/></svg> 修改密碼</button>
+      <button class="tabbtn" onclick="Admin.tab('sys',this)"><svg class="ico" style="font-size:13px"><use href="#ic-signal"/></svg> 系統設定</button>
     </div>
-    <!-- Event -->
+
+    <!-- ── Event Tab ── -->
     <div class="panel" id="tab-ev">
       <h3><svg class="ico" style="font-size:15px"><use href="#ic-target"/></svg> 活動設定</h3>
       <input type="hidden" id="ev-id">
@@ -376,7 +378,10 @@ a{color:inherit;text-decoration:none}
       <div class="fg2">
         <div class="fg"><label class="fl">開始日期</label><input class="fi" type="date" id="ev-s"></div>
         <div class="fg"><label class="fl">結束日期</label><input class="fi" type="date" id="ev-e"></div>
-        <div class="fg"><label class="fl">每人最多時段數</label><input class="fi" type="number" id="ev-max" value="3" min="1" max="100"></div>
+      </div>
+      <div class="fg" style="max-width:240px">
+        <label class="fl">每人最多可選時段數</label>
+        <input class="fi" type="number" id="ev-max" value="3" min="1" max="100">
       </div>
       <hr class="divider">
       <div style="margin-bottom:12px">
@@ -434,12 +439,13 @@ a{color:inherit;text-decoration:none}
       </div>
       <div class="hidden" id="ev-st"></div>
     </div>
-    <!-- Email -->
+
+    <!-- ── Email Tab ── -->
     <div class="panel hidden" id="tab-em">
       <h3><svg class="ico" style="font-size:15px"><use href="#ic-mail"/></svg> Email 發信設定</h3>
       <div class="fg">
         <label class="fl">發信方式</label>
-        <div class="mtabs" style="margin-bottom:6px">
+        <div class="mtabs" id="em-provider-tabs" style="margin-bottom:6px">
           <button class="mtab on" id="ep-resend" onclick="Admin.setEmailProvider('resend',this)">Resend</button>
           <button class="mtab" id="ep-brevo" onclick="Admin.setEmailProvider('brevo',this)">Brevo（無需驗證網域）</button>
           <button class="mtab" id="ep-smtp" onclick="Admin.setEmailProvider('smtp',this)">SMTP</button>
@@ -473,7 +479,14 @@ a{color:inherit;text-decoration:none}
       </div>
       <div id="test-res" class="hidden"></div>
     </div>
-    <!-- Password -->
+
+    <!-- ── Bookings Tab ── -->
+    <div class="panel hidden" id="tab-bk">
+      <h3><svg class="ico" style="font-size:15px"><use href="#ic-list"/></svg> 預約清單</h3>
+      <div id="bk-list"><div class="nodata">載入中…</div></div>
+    </div>
+
+    <!-- ── Password Tab ── -->
     <div class="panel hidden" id="tab-pw">
       <h3><svg class="ico" style="font-size:15px"><use href="#ic-lock"/></svg> 修改管理者密碼</h3>
       <div style="max-width:360px">
@@ -493,12 +506,42 @@ a{color:inherit;text-decoration:none}
         </button>
       </div>
     </div>
-    <!-- Bookings -->
-    <div class="panel hidden" id="tab-bk">
-      <h3><svg class="ico" style="font-size:15px"><use href="#ic-list"/></svg> 預約清單</h3>
-      <div id="bk-list"><div class="nodata">載入中…</div></div>
+
+    <!-- ── System Settings Tab ── -->
+    <div class="panel hidden" id="tab-sys">
+      <h3><svg class="ico" style="font-size:15px"><use href="#ic-signal"/></svg> 系統設定</h3>
+      <div style="max-width:480px;display:flex;flex-direction:column;gap:24px">
+        <div>
+          <div class="fl" style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:8px">自動登出設定</div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span style="color:var(--t2);font-size:13px">閒置</span>
+            <input class="fi" type="number" id="sys-al" min="0" max="480" value="30" style="width:90px;text-align:center">
+            <span style="color:var(--t2);font-size:13px">分鐘後自動登出（0 = 不登出）</span>
+            <button class="btn btn-p btn-sm" onclick="Admin.saveSettings()"><svg class="ico"><use href="#ic-check"/></svg> 儲存</button>
+          </div>
+          <div id="sys-res" class="hidden" style="margin-top:8px"></div>
+        </div>
+        <hr class="divider" style="margin:0">
+        <div>
+          <div class="fl" style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:8px">匯出預約資料</div>
+          <p style="font-size:12px;color:var(--t3);margin-bottom:10px">將所有預約記錄匯出為 CSV（UTF-8 BOM，Excel 可直接開啟）</p>
+          <a href="/api/admin/export" class="btn btn-g btn-sm" style="text-decoration:none;display:inline-flex">↓ 下載 CSV</a>
+        </div>
+        <hr class="divider" style="margin:0">
+        <div>
+          <div class="fl" style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:8px">匯入預約資料</div>
+          <p style="font-size:12px;color:var(--t3);margin-bottom:10px">格式須與匯出相同。已存在的記錄自動跳過。</p>
+          <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+            <input type="file" id="imp-file" accept=".csv" style="font-size:12px;color:var(--t2)">
+            <button class="btn btn-p btn-sm" onclick="Admin.importCSV()"><svg class="ico"><use href="#ic-check"/></svg> 開始匯入</button>
+          </div>
+          <div id="imp-res" class="hidden" style="margin-top:10px"></div>
+        </div>
+      </div>
     </div>
+
   </div>
+
 </div>
 
 <!-- ═══ LINE LOGIN ════════════════════════════════════════════════════════ -->
@@ -540,8 +583,7 @@ a{color:inherit;text-decoration:none}
   </div>
 </div>
 
-
-<!-- ═══ MONTH CALENDAR ════════════════════════ -->
+<!-- ═══ MONTH CALENDAR ════════════════════════════════════════════════════ -->
 <div id="vmc" class="hidden">
   <div class="mc-top">
     <div>
@@ -557,11 +599,10 @@ a{color:inherit;text-decoration:none}
       <button class="btn btn-g btn-sm" onclick="User.logout()">登出</button>
     </div>
   </div>
-  <!-- Body: all months rendered by JS -->
   <div class="mc-body" id="mc-body"></div>
 </div>
 
-<!-- ═══ DAY DETAIL ════════════════════════════ -->
+<!-- ═══ DAY DETAIL ════════════════════════════════════════════════════════ -->
 <div id="vdd" class="hidden">
   <div class="dd-top">
     <div style="display:flex;align-items:center;gap:11px">
@@ -588,7 +629,6 @@ a{color:inherit;text-decoration:none}
   </div>
 </div>
 
-<!-- ═══════════════════════════ JAVASCRIPT ══════════════════════════════ -->
 <script>
 'use strict';
 const ico = id => `<svg class="ico"><use href="#${id}"/></svg>`;
@@ -637,87 +677,57 @@ const L={show(){document.getElementById('ov').classList.remove('hidden');},hide(
 
 /* ── State ──────────────────────────────── */
 const VIEWS=['vh','val','va','vue','vname','vmc','vdd'];
-const S={userId:null,chinName:null,dispName:null,picUrl:null,event:null,lineEnabled:false,myTotal:0};
+const S={userId:null,chinName:null,dispName:null,picUrl:null,event:null,lineEnabled:false,myTotal:0,_adminAutoLogout:30};
 
 /* ── App ────────────────────────────────── */
 const App={
   show(id){VIEWS.forEach(v=>document.getElementById(v).classList.add('hidden'));document.getElementById(id).classList.remove('hidden');},
   async init(){
     Theme.init();
-    // Check for LINE error param (set by callback on failure)
-    const params = new URLSearchParams(location.search);
-    if(params.has('line_error')){
-      history.replaceState({}, '', '/');
-      Toast.show('LINE 登入失敗：' + (params.get('line_error')||'未知錯誤'), 'e');
-    }
-    // Check server session — single source of truth
+    const params=new URLSearchParams(location.search);
+    if(params.has('line_error')){history.replaceState({},'','/');Toast.show('LINE 登入失敗：'+(params.get('line_error')||'未知錯誤'),'e');}
     try{
-      const st = await api.get('/api/auth/status');
-      if(st.is_admin){App.show('va'); await Admin.load(); return;}
+      const st=await api.get('/api/auth/status');
+      if(st.is_admin){
+        App.show('va');await Admin.load();
+        Admin.resetActivityTimer();
+        ['click','keydown','mousemove'].forEach(e=>document.addEventListener(e,()=>Admin.resetActivityTimer(),{passive:true}));
+        return;
+      }
       if(st.user_id){
-        S.userId=st.user_id; S.chinName=st.chinese_name;
-        S.dispName=st.display_name; S.picUrl=st.picture_url;
+        S.userId=st.user_id;S.chinName=st.chinese_name;S.dispName=st.display_name;S.picUrl=st.picture_url;
         if(!st.chinese_name){
-          // First LINE login — need Chinese name
           const av=document.getElementById('name-avatar');
-          if(S.picUrl){av.src=S.picUrl; av.style.display='';}
-          const nm=document.getElementById('name-line-nm');
-          if(nm) nm.textContent=S.dispName||'';
+          if(S.picUrl){av.src=S.picUrl;av.style.display='';}
+          const nm=document.getElementById('name-line-nm');if(nm)nm.textContent=S.dispName||'';
           document.getElementById('name-inp').value='';
           document.getElementById('name-err').style.display='none';
-          App.show('vname');
-          setTimeout(()=>document.getElementById('name-inp').focus(), 100);
-          return;
+          App.show('vname');setTimeout(()=>document.getElementById('name-inp').focus(),100);return;
         }
-        await User.enterCal(); return;
+        await User.enterCal();return;
       }
-    }catch(e){ console.warn('auth/status error:', e); }
+    }catch(e){console.warn('auth/status error:',e);}
     App.show('vh');
+    if(!window._pingTimer){window._pingTimer=setInterval(async()=>{try{await fetch('/api/public/event');}catch{}},60000);}
   },
   goAdmin(){App.show('val');document.getElementById('apwd').focus();},
   async goUser(){App.show('vue');await User.checkEvent();},
   async adminLogin(){
     const pwd=document.getElementById('apwd').value;
-    try{L.show();await api.post('/api/admin/login',{password:pwd});document.getElementById('apwd').value='';App.show('va');await Admin.load();}
-    catch(e){Toast.show(e.message,'e');}finally{L.hide();}
+    try{L.show();await api.post('/api/admin/login',{password:pwd});document.getElementById('apwd').value='';App.show('va');await Admin.load();
+      Admin.resetActivityTimer();
+      ['click','keydown','mousemove'].forEach(e=>document.addEventListener(e,()=>Admin.resetActivityTimer(),{passive:true}));
+    }catch(e){Toast.show(e.message,'e');}finally{L.hide();}
   },
 };
 
 /* ── Admin ──────────────────────────────── */
 const Admin={
-  mode:'uniform',
-  excludedDates:[],   // [{date:'2026-04-04', note:'清明節'}, ...]
-
-  addExDate(){
-    const date=document.getElementById('ex-date').value;
-    const note=document.getElementById('ex-note').value.trim();
-    if(!date){Toast.show('請選擇日期','e');return;}
-    if(Admin.excludedDates.find(d=>d.date===date)){Toast.show('此日期已在排除清單中','e');return;}
-    Admin.excludedDates.push({date,note});
-    Admin.excludedDates.sort((a,b)=>a.date.localeCompare(b.date));
-    Admin.renderExDates();
-    document.getElementById('ex-date').value='';
-    document.getElementById('ex-note').value='';
-  },
-  removeExDate(date){
-    Admin.excludedDates=Admin.excludedDates.filter(d=>d.date!==date);
-    Admin.renderExDates();
-  },
-  renderExDates(){
-    const el=document.getElementById('ex-pills');
-    if(!el)return;
-    if(!Admin.excludedDates.length){el.innerHTML='<span style="color:var(--t4);font-size:12px">尚未設定排除日期</span>';return;}
-    el.innerHTML=Admin.excludedDates.map(({date,note})=>`
-      <div class="ex-pill">
-        <span class="dt">${date}</span>
-        ${note?`<span class="nt">${note}</span>`:''}
-        <button onclick="Admin.removeExDate('${date}')" title="移除">×</button>
-      </div>`).join('');
-  },
-  async load(){await Promise.all([Admin.loadEv(),Admin.loadBk(),Admin.loadEm()]);},
+  mode:'uniform',emailProvider:'resend',excludedDates:[],
+  async load(){await Promise.all([Admin.loadEv(),Admin.loadBk(),Admin.loadEm(),Admin.loadSettings()]);},
   tab(n,btn){
-    ['ev','em','bk'].forEach(t=>document.getElementById('tab-'+t).classList.add('hidden'));
-    document.getElementById('tab-'+n).classList.remove('hidden');
+    ['ev','em','bk','pw','sys'].forEach(t=>{const el=document.getElementById('tab-'+t);if(el)el.classList.add('hidden');});
+    const panel=document.getElementById('tab-'+n);if(panel)panel.classList.remove('hidden');
     document.querySelectorAll('.tabbtn').forEach(b=>b.classList.remove('on'));btn.classList.add('on');
     if(n==='bk')Admin.loadBk();
   },
@@ -767,48 +777,49 @@ const Admin={
   },
   togPD(btn){const d=+btn.dataset.dow;const on=btn.classList.toggle('on');btn.classList.toggle('off',!on);document.querySelector(`#pd-body tr[data-dow="${d}"]`).querySelectorAll('input').forEach(i=>i.disabled=!on);Admin.pdPrev(d);},
   pdPrev(d){const tr=document.querySelector(`#pd-body tr[data-dow="${d}"]`);if(!tr)return;const on=tr.querySelector('.tog').classList.contains('on');const el=document.getElementById('pdp-'+d);if(!on){el.textContent='';return;}const n=genSlots(tr.querySelector('.pd-ts').value,tr.querySelector('.pd-te').value,tr.querySelector('.pd-dur').value).length;el.textContent=n?`${n} 個時段`:'';},
-  emailProvider:'resend',
-  setEmailProvider(prov,btn){
-    Admin.emailProvider=prov;
-    document.querySelectorAll('.mtab').forEach(b=>b.classList.remove('on'));btn.classList.add('on');
-    document.getElementById('em-resend-fields').classList.toggle('hidden',prov!=='resend');
-    document.getElementById('em-smtp-fields').classList.toggle('hidden',prov==='resend');
-    const hints={
-      resend:'Resend HTTP API — 免費 3,000 封/月，Render 可用，需在 resend.com 驗證網域才能寄給任意收件人。',
-      brevo:'Brevo HTTP API — 免費 300 封/天，不需驗證網域，可直接用 Gmail 當寄件人。',
-      smtp:'SMTP 直連 — Render 免費版已封鎖此方式，僅付費版或本地部署可用。'
-    };
-    document.getElementById('em-provider-hint').textContent=hints[prov]||hints.smtp;
-    const lbl=document.getElementById('apikey-label'), lnk=document.getElementById('apikey-link');
-    if(prov==='brevo'){
-      if(lbl)lbl.textContent='Brevo API Key';
-      if(lnk){lnk.textContent='→ 取得 API Key';lnk.href='https://app.brevo.com/settings/keys/api';}
-    }else if(prov==='resend'){
-      if(lbl)lbl.textContent='Resend API Key';
-      if(lnk){lnk.textContent='→ 取得 API Key';lnk.href='https://resend.com/api-keys';}
-    }
+  addExDate(){
+    const date=document.getElementById('ex-date').value;const note=document.getElementById('ex-note').value.trim();
+    if(!date){Toast.show('請選擇日期','e');return;}
+    if(Admin.excludedDates.find(d=>d.date===date)){Toast.show('此日期已在排除清單中','e');return;}
+    Admin.excludedDates.push({date,note});Admin.excludedDates.sort((a,b)=>a.date.localeCompare(b.date));
+    Admin.renderExDates();document.getElementById('ex-date').value='';document.getElementById('ex-note').value='';
   },
-  async loadEm(){try{const s=await api.get('/api/admin/email-settings');if(s){
-      const prov=s.provider||'resend';
-      Admin.emailProvider=prov;
-      document.querySelectorAll('.mtab').forEach(b=>b.classList.remove('on'));
-      const activeBtn=document.getElementById('ep-'+prov)||document.getElementById('ep-resend');
-      activeBtn.classList.add('on');
-      Admin.setEmailProvider(prov,activeBtn);
-      // Resend fields
-      document.getElementById('em-f-resend').value=s.from_email||'';
-      if(s.has_api_key)document.getElementById('em-apikey').placeholder='（API Key 已儲存—如需更改才重新輸入）';
-      // SMTP fields
-      document.getElementById('em-h').value=s.host||'';document.getElementById('em-p').value=s.port||587;
-      document.getElementById('em-u').value=s.username||'';document.getElementById('em-f').value=s.from_email||'';
-      document.getElementById('em-ssl').checked=!!s.use_ssl;
-      if(s.has_password)document.getElementById('em-pw').placeholder='（密碼已儲存—如需更改才重新輸入）';
-    }}catch{}},
+  removeExDate(date){Admin.excludedDates=Admin.excludedDates.filter(d=>d.date!==date);Admin.renderExDates();},
+  renderExDates(){
+    const el=document.getElementById('ex-pills');if(!el)return;
+    if(!Admin.excludedDates.length){el.innerHTML='<span style="color:var(--t4);font-size:12px">尚未設定排除日期</span>';return;}
+    el.innerHTML=Admin.excludedDates.map(({date,note})=>`<div class="ex-pill"><span class="dt">${date}</span>${note?`<span class="nt">${note}</span>`:''}<button onclick="Admin.removeExDate('${date}')" title="移除">×</button></div>`).join('');
+  },
+  async loadEm(){
+    try{const s=await api.get('/api/admin/email-settings');
+      if(s){
+        const prov=s.provider||'resend';Admin.emailProvider=prov;
+        document.querySelectorAll('.mtab').forEach(b=>b.classList.remove('on'));
+        const ab=document.getElementById('ep-'+prov)||document.getElementById('ep-resend');if(ab){ab.classList.add('on');Admin.setEmailProvider(prov,ab);}
+        document.getElementById('em-f-resend').value=s.from_email||'';
+        if(s.has_api_key)document.getElementById('em-apikey').placeholder='（API Key 已儲存—如需更改才重新輸入）';
+        document.getElementById('em-h').value=s.host||'';document.getElementById('em-p').value=s.port||587;
+        document.getElementById('em-u').value=s.username||'';document.getElementById('em-f').value=s.from_email||'';
+        document.getElementById('em-ssl').checked=!!s.use_ssl;
+        if(s.has_password)document.getElementById('em-pw').placeholder='（密碼已儲存—如需更改才重新輸入）';
+      }
+    }catch{}
+  },
+  setEmailProvider(prov,btn){
+    Admin.emailProvider=prov;document.querySelectorAll('.mtab').forEach(b=>b.classList.remove('on'));if(btn)btn.classList.add('on');
+    document.getElementById('em-resend-fields').classList.toggle('hidden',prov!=='resend'&&prov!=='brevo');
+    document.getElementById('em-smtp-fields').classList.toggle('hidden',prov==='resend'||prov==='brevo');
+    const hints={resend:'Resend HTTP API — 免費 3,000 封/月，Render/Railway 可用，需在 resend.com 驗證網域。',brevo:'Brevo HTTP API — 免費 300 封/天，不需驗證網域，可直接用 Gmail 當寄件人。',smtp:'SMTP 直連 — Render/Railway 免費版已封鎖此方式，僅付費版或本地部署可用。'};
+    const hel=document.getElementById('em-provider-hint');if(hel)hel.textContent=hints[prov]||hints.smtp;
+    const lbl=document.getElementById('apikey-label'),lnk=document.getElementById('apikey-link');
+    if(prov==='brevo'){if(lbl)lbl.textContent='Brevo API Key';if(lnk){lnk.textContent='→ 取得 API Key';lnk.href='https://app.brevo.com/settings/keys/api';}}
+    else if(prov==='resend'){if(lbl)lbl.textContent='Resend API Key';if(lnk){lnk.textContent='→ 取得 API Key';lnk.href='https://resend.com/api-keys';}}
+  },
   async loadBk(){
     const list=document.getElementById('bk-list');
-    try{const data=await api.get('/api/admin/bookings');document.getElementById('s-tot').textContent=data.length;document.getElementById('s-usr').textContent=new Set(data.map(b=>b.email)).size;
+    try{const data=await api.get('/api/admin/bookings');document.getElementById('s-tot').textContent=data.length;document.getElementById('s-usr').textContent=new Set(data.map(b=>b.email||b.line_user_id)).size;
     if(!data.length){list.innerHTML='<div class="nodata">尚無任何預約紀錄</div>';return;}
-    const by={};data.forEach(b=>{if(!by[b.email])by[b.email]=[];by[b.email].push(b);});
+    const by={};data.forEach(b=>{const k=b.email||b.line_user_id||b.id;if(!by[k])by[k]=[];by[k].push(b);});
     list.innerHTML=Object.entries(by).map(([em,sl])=>`<div class="bk-item"><div class="bk-em">${ico('ic-user')} <strong>${sl[0].chinese_name||sl[0].display_name||em}</strong> <span style="color:var(--t3);font-size:11px;font-weight:400">${em}</span> <span style="color:var(--t4);font-weight:400">（${sl.length} 個）</span></div><div class="bk-slots">${sl.sort((a,b)=>a.booking_date.localeCompare(b.booking_date)||a.slot_start_time.localeCompare(b.slot_start_time)).map(s=>`<span class="bk-pill">${s.booking_date.substring(0,10)} ${String(s.slot_start_time).substring(0,5)}</span>`).join('')}</div></div>`).join('');}
     catch(e){list.innerHTML=`<div class="nodata">載入失敗：${e.message}</div>`;}
   },
@@ -822,45 +833,52 @@ const Admin={
     catch(e){Toast.show(e.message,'e');}finally{L.hide();}
   },
   async toggleOpen(o){const id=document.getElementById('ev-id').value;if(!id){Toast.show('請先儲存活動設定','e');return;}try{L.show();await api.put('/api/admin/event/toggle',{id:+id,isOpen:o});Toast.show(o?'報名已開放':'報名已關閉','s');await Admin.loadEv();}catch(e){Toast.show(e.message,'e');}finally{L.hide();}},
-  async saveEm(){const b={host:document.getElementById('em-h').value.trim(),port:+document.getElementById('em-p').value,username:document.getElementById('em-u').value.trim(),password:document.getElementById('em-pw').value,from:document.getElementById('em-f').value.trim(),ssl:document.getElementById('em-ssl').checked};try{L.show();await api.put('/api/admin/email-settings',b);Toast.show('Email 設定已儲存','s');}catch(e){Toast.show(e.message,'e');}finally{L.hide();}},
+  async saveEm(){
+    const prov=Admin.emailProvider;
+    const body={provider:prov,from:prov==='resend'||prov==='brevo'?document.getElementById('em-f-resend').value.trim():document.getElementById('em-f').value.trim(),api_key:prov==='resend'||prov==='brevo'?document.getElementById('em-apikey').value:'',host:document.getElementById('em-h').value.trim(),port:+document.getElementById('em-p').value,username:document.getElementById('em-u').value.trim(),password:document.getElementById('em-pw').value,ssl:document.getElementById('em-ssl').checked};
+    try{L.show();await api.put('/api/admin/email-settings',body);Toast.show('Email 設定已儲存','s');}catch(e){Toast.show(e.message,'e');}finally{L.hide();}
+  },
   async testEm(){
     const btn=document.getElementById('btn-test'),res=document.getElementById('test-res');
-    const to=document.getElementById('em-to').value.trim();
-    const prov=Admin.emailProvider;
+    const to=document.getElementById('em-to').value.trim(),prov=Admin.emailProvider;
     if(!to){Toast.show('請填寫測試收件人 Email','e');return;}
     btn.innerHTML=`${ico('ic-signal')} 發送中…`;btn.disabled=true;res.className='hidden';
-    const body={
-      provider:prov,
-      api_key:prov==='resend'?document.getElementById('em-apikey').value:'',
-      from:prov==='resend'?document.getElementById('em-f-resend').value.trim():document.getElementById('em-f').value.trim(),
-      host:document.getElementById('em-h').value.trim(),
-      port:+document.getElementById('em-p').value,
-      username:document.getElementById('em-u').value.trim(),
-      password:document.getElementById('em-pw').value,
-      ssl:document.getElementById('em-ssl').checked,
-      to,
-    };
+    const body={provider:prov,api_key:prov==='resend'||prov==='brevo'?document.getElementById('em-apikey').value:'',from:prov==='resend'||prov==='brevo'?document.getElementById('em-f-resend').value.trim():document.getElementById('em-f').value.trim(),host:document.getElementById('em-h').value.trim(),port:+document.getElementById('em-p').value,username:document.getElementById('em-u').value.trim(),password:document.getElementById('em-pw').value,ssl:document.getElementById('em-ssl').checked,to};
     try{await api.post('/api/admin/email-test',body);res.className='rok';res.innerHTML=`測試信已成功寄出至 <strong>${to}</strong>，請查收信箱確認。`;}
-    catch(e){res.className='rfail';res.innerHTML=e.message.replace(/\\n/g,'<br>');}
+    catch(e){res.className='rfail';res.innerHTML=e.message.split('\n').join('<br>');}
     finally{btn.innerHTML=`${ico('ic-signal')} 發信測試`;btn.disabled=false;res.classList.remove('hidden');}
   },
+  async loadSettings(){
+    try{const r=await api.get('/api/admin/settings');const el=document.getElementById('sys-al');if(el)el.value=r.auto_logout||30;S._adminAutoLogout=r.auto_logout||30;}catch{}
+  },
+  async saveSettings(){
+    const al=+(document.getElementById('sys-al').value)||0;
+    const res=document.getElementById('sys-res');res.className='hidden';
+    try{L.show();await api.put('/api/admin/settings',{auto_logout:al});S._adminAutoLogout=al;Admin.resetActivityTimer();res.className='rok';res.textContent='✓ 系統設定已儲存';res.classList.remove('hidden');Toast.show('設定已儲存','s');}
+    catch(e){res.className='rfail';res.textContent=e.message;res.classList.remove('hidden');}finally{L.hide();}
+  },
+  async importCSV(){
+    const file=document.getElementById('imp-file').files[0];const res=document.getElementById('imp-res');res.className='hidden';
+    if(!file){Toast.show('請選擇 CSV 檔案','e');return;}
+    const fd=new FormData();fd.append('file',file);
+    try{L.show();const r=await fetch('/api/admin/import',{method:'POST',body:fd});const d=await r.json();if(!r.ok)throw new Error(d.error||'匯入失敗');
+      let html=`<div class="rok">✓ 成功匯入 <strong>${d.imported}</strong> 筆，跳過 <strong>${d.skipped}</strong> 筆</div>`;
+      if(d.errors&&d.errors.length)html+=`<div class="rfail" style="margin-top:6px">${d.errors.join('<br>')}</div>`;
+      res.innerHTML=html;res.classList.remove('hidden');await Admin.loadBk();
+    }catch(e){res.className='rfail';res.textContent=e.message;res.classList.remove('hidden');}finally{L.hide();}
+  },
+  _actTimer:null,
+  resetActivityTimer(){
+    clearTimeout(Admin._actTimer);const mins=S._adminAutoLogout||0;if(!mins)return;
+    Admin._actTimer=setTimeout(()=>{Toast.show('閒置時間到，已自動登出','i');Admin.logout();},mins*60000);
+  },
   async changePw(){
-    const cur=document.getElementById('pw-cur').value;
-    const nw=document.getElementById('pw-new').value;
-    const cfm=document.getElementById('pw-cfm').value;
-    const res=document.getElementById('pw-res');
-    res.className='hidden';
-    try{
-      L.show();
-      await api.put('/api/admin/password',{current:cur,new:nw,confirm:cfm});
+    const cur=document.getElementById('pw-cur').value,nw=document.getElementById('pw-new').value,cfm=document.getElementById('pw-cfm').value;
+    const res=document.getElementById('pw-res');res.className='hidden';
+    try{L.show();await api.put('/api/admin/password',{current:cur,new:nw,confirm:cfm});
       ['pw-cur','pw-new','pw-cfm'].forEach(id=>document.getElementById(id).value='');
-      res.className='rok'; res.textContent='✓ 密碼已成功修改';
-      res.classList.remove('hidden');
-      Toast.show('密碼修改成功','s');
-    }catch(e){
-      res.className='rfail'; res.textContent=e.message;
-      res.classList.remove('hidden');
-    }finally{L.hide();}
+      res.className='rok';res.textContent='✓ 密碼已成功修改';res.classList.remove('hidden');Toast.show('密碼修改成功','s');
+    }catch(e){res.className='rfail';res.textContent=e.message;res.classList.remove('hidden');}finally{L.hide();}
   },
   async logout(){await api.post('/api/admin/logout').catch(()=>{});App.show('vh');}
 };
@@ -868,242 +886,126 @@ const Admin={
 /* ── User (LINE Login) ─────────────────────────── */
 const User={
   async checkEvent(){
-    const info=document.getElementById('ev-info'), btn=document.getElementById('btn-line-login');
+    const info=document.getElementById('ev-info'),btn=document.getElementById('btn-line-login');
     try{
-      const[ev,cfg]=await Promise.all([
-        api.get('/api/public/event'),
-        api.get('/api/public/config').catch(()=>({line_enabled:false}))
-      ]);
-      S.lineEnabled=cfg.line_enabled||false;
-      let h='';
-      if(ev){
-        h=`<strong style="color:var(--t1)">${ev.name}</strong><br><span style="font-size:12px">${ev.start_date.substring(0,10)} ～ ${ev.end_date.substring(0,10)}</span>`;
-        btn.disabled=!S.lineEnabled;
-      }else{
-        h='<span style="color:var(--warn)">目前沒有開放的活動</span>';
-        btn.disabled=true;
-      }
-      if(!S.lineEnabled){
-        h+='<div style="margin-top:10px;padding:8px 12px;background:var(--er-bg);border:1px solid var(--er-bd);border-radius:8px;font-size:12px;color:var(--er-tx)">⚠ LINE Login 尚未設定，請管理者在 Render 環境變數加入 LINE_CHANNEL_ID / LINE_CHANNEL_SECRET / LINE_REDIRECT_URI</div>';
-      }
+      const[ev,cfg]=await Promise.all([api.get('/api/public/event'),api.get('/api/public/config').catch(()=>({line_enabled:false}))]);
+      S.lineEnabled=cfg.line_enabled||false;let h='';
+      if(ev){h=`<strong style="color:var(--t1)">${ev.name}</strong><br><span style="font-size:12px">${ev.start_date.substring(0,10)} ～ ${ev.end_date.substring(0,10)}</span>`;btn.disabled=!S.lineEnabled;}
+      else{h='<span style="color:var(--warn)">目前沒有開放的活動</span>';btn.disabled=true;}
+      if(!S.lineEnabled)h+='<div style="margin-top:10px;padding:8px 12px;background:var(--er-bg);border:1px solid var(--er-bd);border-radius:8px;font-size:12px;color:var(--er-tx)">⚠ LINE Login 尚未設定</div>';
       info.innerHTML=h;
-    }catch{info.innerHTML='請稍後再試';btn.disabled=true;}
+    }catch{info.innerHTML='請稍後再試';if(btn)btn.disabled=true;}
   },
-
   async lineLogin(){
-    try{
-      L.show();
-      const r=await api.get('/api/auth/line/url');
-      // 直接跳轉整頁，避免 popup window.close() 被 Chrome 封鎖的問題
-      window.location.href = r.url;
-    }catch(e){L.hide();Toast.show(e.message,'e');}
+    try{L.show();const r=await api.get('/api/auth/line/url');window.location.href=r.url;}
+    catch(e){L.hide();Toast.show(e.message,'e');}
   },
-
   validateName(inp){
     const v=inp.value;const err=document.getElementById('name-err');
-    if(/[A-Za-z0-9]/.test(v)){
-      inp.value=v.replace(/[A-Za-z0-9]/g,'');
-      err.textContent='不允許英文或數字';err.style.display='';
-    }else{err.style.display='none';}
+    if(/[A-Za-z0-9]/.test(v)){inp.value=v.replace(/[A-Za-z0-9]/g,'');err.textContent='不允許英文或數字';err.style.display='';}
+    else{err.style.display='none';}
   },
-
   async submitName(){
-    const name=document.getElementById('name-inp').value.trim();
-    const errEl=document.getElementById('name-err');
+    const name=document.getElementById('name-inp').value.trim();const errEl=document.getElementById('name-err');
     if(!name){errEl.textContent='請輸入姓名';errEl.style.display='';return;}
     if(name.length>4){errEl.textContent='最多 4 個字';errEl.style.display='';return;}
     if(/[A-Za-z0-9]/.test(name)){errEl.textContent='不允許英文或數字';errEl.style.display='';return;}
-    try{
-      L.show();
-      await api.post('/api/user/set-name',{name});
-      S.chinName=name;
-      const st=await api.get('/api/auth/status');
-      S.userId=st.user_id;
-      await User.enterCal();
-    }catch(e){errEl.textContent=e.message;errEl.style.display='';}
-    finally{L.hide();}
+    try{L.show();await api.post('/api/user/set-name',{name});S.chinName=name;const st=await api.get('/api/auth/status');S.userId=st.user_id;await User.enterCal();}
+    catch(e){errEl.textContent=e.message;errEl.style.display='';}finally{L.hide();}
   },
-
   async enterCal(){
-    try{
-      L.show();
-      const ev=await api.get('/api/user/event');
-      if(!ev){Toast.show('目前沒有開放的活動','e');App.show('vh');return;}
-      S.event=ev;
-      document.getElementById('mc-ev-name').textContent=ev.name;
-      document.getElementById('mc-ev-rng').textContent=`${(ev.start_date||'').substring(0,10)} ～ ${(ev.end_date||'').substring(0,10)}`;
-      document.getElementById('mc-email').textContent=S.chinName||(S.dispName||'');
-      document.getElementById('mc-qmax').textContent=ev.max_slots_per_user;
-      document.getElementById('dd-qmax').textContent=ev.max_slots_per_user;
-      document.getElementById('dd-email').textContent=S.chinName||(S.dispName||'');
-      const evStart=new Date((ev.start_date||'').substring(0,10)+'T00:00:00');
-      MC.yr=evStart.getFullYear();MC.mo=evStart.getMonth()+1;
-      App.show('vmc');await MC.renderAll();
-    }catch(e){Toast.show(e.message,'e');App.show('vh');}finally{L.hide();}
+    try{L.show();const ev=await api.get('/api/user/event');if(!ev){Toast.show('目前沒有開放的活動','e');App.show('vh');return;}
+    S.event=ev;document.getElementById('mc-ev-name').textContent=ev.name;document.getElementById('mc-ev-rng').textContent=`${(ev.start_date||'').substring(0,10)} ～ ${(ev.end_date||'').substring(0,10)}`;document.getElementById('mc-email').textContent=S.chinName||(S.dispName||'');document.getElementById('mc-qmax').textContent=ev.max_slots_per_user;document.getElementById('dd-qmax').textContent=ev.max_slots_per_user;document.getElementById('dd-email').textContent=S.chinName||(S.dispName||'');
+    App.show('vmc');await MC.renderAll();}
+    catch(e){Toast.show(e.message,'e');App.show('vh');}finally{L.hide();}
   },
-
   async logout(){await api.post('/api/user/logout').catch(()=>{});S.userId=null;S.chinName=null;S.event=null;App.show('vh');}
 };
 
-
-/* ── Month Calendar ─────────────────────── */
-const MC = {
-  avail:        {},
-  myDates:      new Set(),
-  excludedDates: new Map(),  // date -> holiday name
-
-  async loadAll() {
-    const ev=S.event; if(!ev)return;
-    try{
-      const r=await api.get(`/api/user/all-availability?eventId=${ev.id}`);
-      MC.avail=r.availability||{};
-      MC.myDates=new Set(r.my_dates||[]);
-      MC.excludedDates=new Map((r.excluded_dates||[]).map(d=>[d.date, d.note||'']));
-    }
+/* ── Month Calendar ─────────────────────────────── */
+const MC={
+  avail:{},myDates:new Set(),excludedDates:new Map(),
+  async loadAll(){
+    const ev=S.event;if(!ev)return;
+    try{const r=await api.get(`/api/user/all-availability?eventId=${ev.id}`);MC.avail=r.availability||{};MC.myDates=new Set(r.my_dates||[]);MC.excludedDates=new Map((r.excluded_dates||[]).map(d=>[d.date,d.note||'']));}
     catch{MC.avail={};MC.myDates=new Set();MC.excludedDates=new Map();}
   },
-
-  async renderAll() {
-    await MC.loadAll();
-    await MC.refreshQ();
-    MC.buildGrid();
-  },
-
-  async refreshQ() {
-    const ev=S.event; if(!ev)return;
-    S.myTotal=MC.myDates.size;
-    const max=ev.max_slots_per_user;
-    const q=document.getElementById('mc-q');
-    q.textContent=S.myTotal; q.className=S.myTotal>=max?'full':'';
+  async renderAll(){await MC.loadAll();await MC.refreshQ();MC.buildGrid();},
+  async refreshQ(){
+    const ev=S.event;if(!ev)return;S.myTotal=MC.myDates.size;const max=ev.max_slots_per_user;
+    const q=document.getElementById('mc-q');q.textContent=S.myTotal;q.className=S.myTotal>=max?'full':'';
     document.getElementById('mc-qwarn').style.display=S.myTotal>=max?'':'none';
-    const dq=document.getElementById('dd-q');
-    if(dq){dq.textContent=S.myTotal;document.getElementById('dd-qwarn').style.display=S.myTotal>=max?'':'none';}
+    const dq=document.getElementById('dd-q');if(dq){dq.textContent=S.myTotal;document.getElementById('dd-qwarn').style.display=S.myTotal>=max?'':'none';}
   },
-
-  buildGrid() {
-    const ev=S.event;
-    const evS=(ev.start_date||'').substring(0,10);
-    const evE=(ev.end_date||'').substring(0,10);
-    const sD=new Date(evS+'T00:00:00'), eD=new Date(evE+'T00:00:00');
-    const months=[];
-    let cur=new Date(sD.getFullYear(),sD.getMonth(),1);
-    const eMon=new Date(eD.getFullYear(),eD.getMonth(),1);
+  buildGrid(){
+    const ev=S.event;const evS=(ev.start_date||'').substring(0,10),evE=(ev.end_date||'').substring(0,10);
+    const sD=new Date(evS+'T00:00:00'),eD=new Date(evE+'T00:00:00');
+    const months=[];let cur=new Date(sD.getFullYear(),sD.getMonth(),1);const eMon=new Date(eD.getFullYear(),eD.getMonth(),1);
     while(cur<=eMon){months.push({yr:cur.getFullYear(),mo:cur.getMonth()+1});cur.setMonth(cur.getMonth()+1);}
     const body=document.getElementById('mc-body');
-    body.innerHTML=`<div class="months-outer">
-      <div class="months-legend">
-        <div class="mleg"><div class="mleg-dot" style="background:#22c55e"></div>尚有可預約時段</div>
-        <div class="mleg"><div class="mleg-dot" style="background:#ef4444"></div>時段已額滿</div>
-        <div class="mleg"><div class="mleg-mine">7</div>我有預約（藍框）</div>
-      </div>
-      <div class="months-grid" id="months-grid"></div>
-    </div>`;
-    const grid=document.getElementById('months-grid');
-    months.forEach(({yr,mo})=>grid.appendChild(MC.buildMonth(yr,mo,evS,evE)));
+    body.innerHTML=`<div class="months-outer"><div class="months-legend"><div class="mleg"><div class="mleg-dot" style="background:#22c55e"></div>尚有可預約時段</div><div class="mleg"><div class="mleg-dot" style="background:#ef4444"></div>時段已額滿</div><div class="mleg"><div class="mleg-mine">7</div>我有預約（藍框）</div></div><div class="months-grid" id="months-grid"></div></div>`;
+    const grid=document.getElementById('months-grid');months.forEach(({yr,mo})=>grid.appendChild(MC.buildMonth(yr,mo,evS,evE)));
   },
-
-  buildMonth(yr,mo,evS,evE) {
-    const todayD=new Date(TODAY+'T00:00:00');
-    const dim=new Date(yr,mo,0).getDate();
-    const off=new Date(yr,mo-1,1).getDay();
-    const offset=off===0?6:off-1;
-    const card=document.createElement('div'); card.className='mmc';
-    const t=document.createElement('div'); t.className='mmc-title';
-    t.textContent=`${yr}年${MON[mo-1]}`; card.appendChild(t);
-    const dr=document.createElement('div'); dr.className='mmc-dow';
-    ['一','二','三','四','五','六','日'].forEach((d,i)=>{
-      const c=document.createElement('div');c.className='mmc-dow-c'+(i>=5?' we':'');c.textContent=d;dr.appendChild(c);
-    });
-    card.appendChild(dr);
-    const dg=document.createElement('div'); dg.className='mmc-grid';
+  buildMonth(yr,mo,evS,evE){
+    const todayD=new Date(TODAY+'T00:00:00');const dim=new Date(yr,mo,0).getDate();
+    const off=new Date(yr,mo-1,1).getDay();const offset=off===0?6:off-1;
+    const card=document.createElement('div');card.className='mmc';
+    const t=document.createElement('div');t.className='mmc-title';t.textContent=`${yr}年${MON[mo-1]}`;card.appendChild(t);
+    const dr=document.createElement('div');dr.className='mmc-dow';
+    ['一','二','三','四','五','六','日'].forEach((d,i)=>{const c=document.createElement('div');c.className='mmc-dow-c'+(i>=5?' we':'');c.textContent=d;dr.appendChild(c);});card.appendChild(dr);
+    const dg=document.createElement('div');dg.className='mmc-grid';
     const prevDim=new Date(yr,mo-1,0).getDate();
     for(let i=0;i<offset;i++){const c=document.createElement('div');c.className='mmc-day other';const n=document.createElement('div');n.className='mmc-num';n.textContent=prevDim-offset+1+i;c.appendChild(n);dg.appendChild(c);}
     for(let d=1;d<=dim;d++){
-      const ds=`${yr}-${pad(mo)}-${pad(d)}`;
-      const dt=new Date(yr,mo-1,d);
-      const isToday=ds===TODAY, isPast=dt<todayD&&!isToday;
-      const inRange=ds>=evS&&ds<=evE, status=MC.avail[ds], isMyDay=MC.myDates.has(ds);
-      const isExcluded=MC.excludedDates.has(ds);
+      const ds=`${yr}-${pad(mo)}-${pad(d)}`;const dt=new Date(yr,mo-1,d);
+      const isToday=ds===TODAY,isPast=dt<todayD&&!isToday,inRange=ds>=evS&&ds<=evE,status=MC.avail[ds],isMyDay=MC.myDates.has(ds),isExcluded=MC.excludedDates.has(ds);
       const holidayName=isExcluded?(MC.excludedDates.get(ds)||''):'';
       const cell=document.createElement('div');
-      let cellCls='mmc-day'+(isExcluded?' holiday':(!inRange||!status?' inactive':' can'))+(isPast&&!isToday?' past':'');
-      cell.className=cellCls;
+      cell.className='mmc-day'+(isExcluded?' holiday':(!inRange||!status?' inactive':' can'))+(isPast&&!isToday?' past':'');
       if(isExcluded&&holidayName)cell.dataset.holiday=holidayName;
       if(inRange&&status&&!isExcluded)cell.onclick=()=>MC.openDay(ds,dt);
-      const num=document.createElement('div');
-      num.className='mmc-num'+(isToday?' today':'')+(isMyDay&&!isExcluded?' mybook':'');
-      num.textContent=d; cell.appendChild(num);
+      const num=document.createElement('div');num.className='mmc-num'+(isToday?' today':'')+(isMyDay&&!isExcluded?' mybook':'');num.textContent=d;cell.appendChild(num);
       if(inRange&&status&&!isExcluded){const dot=document.createElement('div');dot.className='mmc-dot '+(status==='open'?'avail':'full');cell.appendChild(dot);}
       dg.appendChild(cell);
     }
-    const tot=offset+dim, rem=(7-tot%7)%7;
+    const tot=offset+dim,rem=(7-tot%7)%7;
     for(let i=1;i<=rem;i++){const c=document.createElement('div');c.className='mmc-day other';const n=document.createElement('div');n.className='mmc-num';n.textContent=i;c.appendChild(n);dg.appendChild(c);}
-    card.appendChild(dg); return card;
+    card.appendChild(dg);return card;
   },
-
-  async openDay(ds,dateObj) {
-    const ev=S.event; if(!ev)return;
-    const dow=dateObj.getDay();
-    const dsMap={};(ev.day_schedules||[]).forEach(d=>dsMap[d.day_of_week]=d);
-    const sched=dsMap[dow]; if(!sched)return;
-    const m=dateObj.getMonth()+1, d=dateObj.getDate();
-    document.getElementById('dd-ttl').textContent=`${dateObj.getFullYear()}年${m}月${d}日`;
-    document.getElementById('dd-sub').textContent=`週${DZH[dow]}`;
-    App.show('vdd'); await DD.render(ds,sched);
+  async openDay(ds,dateObj){
+    const ev=S.event;if(!ev)return;const dow=dateObj.getDay();const dsMap={};(ev.day_schedules||[]).forEach(d=>dsMap[d.day_of_week]=d);const sched=dsMap[dow];if(!sched)return;
+    const m=dateObj.getMonth()+1,d=dateObj.getDate();document.getElementById('dd-ttl').textContent=`${dateObj.getFullYear()}年${m}月${d}日`;document.getElementById('dd-sub').textContent=`週${DZH[dow]}`;App.show('vdd');await DD.render(ds,sched);
   },
 };
 
-
+/* ── Day Detail ─────────────────────────── */
 const DD={
   date:null,sched:null,
   async render(date,sched){
-    DD.date=date;DD.sched=sched;
-    const ev=S.event;const box=document.getElementById('dd-slots');
+    DD.date=date;DD.sched=sched;const ev=S.event;const box=document.getElementById('dd-slots');
     box.innerHTML='<div class="slot-empty">載入中…</div>';
     const allSlots=genSlots(sched.slot_start_time,sched.slot_end_time,sched.slot_duration);
     if(!allSlots.length){box.innerHTML='<div class="slot-empty">此日期無可用時段</div>';return;}
-    let bkData;
-    try{bkData=await api.get(`/api/user/day-slots?eventId=${ev.id}&date=${date}`);}
+    let bkData;try{bkData=await api.get(`/api/user/day-slots?eventId=${ev.id}&date=${date}`);}
     catch(e){box.innerHTML=`<div class="slot-empty">載入失敗：${e.message}</div>`;return;}
-    S.myTotal=bkData.my_total||0;
-    const max=ev.max_slots_per_user;
-    document.getElementById('dd-q').textContent=S.myTotal;
-    document.getElementById('dd-q').className=S.myTotal>=max?'full':'';
+    S.myTotal=bkData.my_total||0;const max=ev.max_slots_per_user;
+    document.getElementById('dd-q').textContent=S.myTotal;document.getElementById('dd-q').className=S.myTotal>=max?'full':'';
     document.getElementById('dd-qwarn').style.display=S.myTotal>=max?'':'none';
-    document.getElementById('mc-q').textContent=S.myTotal;
-    document.getElementById('mc-q').className=S.myTotal>=max?'full':'';
+    document.getElementById('mc-q').textContent=S.myTotal;document.getElementById('mc-q').className=S.myTotal>=max?'full':'';
     const bm={};bkData.bookings.forEach(b=>{const st=String(b.slot_start_time).substring(0,5);bm[st]={mine:!!b.is_mine,name:b.chinese_name||b.display_name||''};});
     const dur=sched.slot_duration;
     box.innerHTML=allSlots.map(sl=>{
       const info=bm[sl.start];
-      if(!info){
-        const full=S.myTotal>=max;
-        return `<div class="slot-row">
-          <div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div>
-          <div class="slot-r"><span class="sp sp-f">可預約</span>${full?'':` <button class="btn btn-p btn-xs" onclick="DD.book('${date}','${sl.start}','${sl.end}')">${ico('ic-check')} 預約</button>`}</div>
-        </div>`;
-      }else if(info.mine){
-        return `<div class="slot-row">
-          <div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div>
-          <div class="slot-r"><span class="sp sp-m">${ico('ic-check')} 已選取</span> <button class="btn btn-g btn-xs" onclick="DD.cancel('${date}','${sl.start}')">${ico('ic-x')} 取消</button></div>
-        </div>`;
-      }else{
-        return `<div class="slot-row">
-          <div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div>
-          <div class="slot-r"><span class="sp sp-t">已被預約</span><span class="booker-em">${info.name||'—'}</span></div>
-        </div>`;
-      }
+      if(!info){const full=S.myTotal>=max;return `<div class="slot-row"><div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div><div class="slot-r"><span class="sp sp-f">可預約</span>${full?'':` <button class="btn btn-p btn-xs" onclick="DD.book('${date}','${sl.start}','${sl.end}')">${ico('ic-check')} 預約</button>`}</div></div>`;}
+      else if(info.mine){return `<div class="slot-row"><div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div><div class="slot-r"><span class="sp sp-m">${ico('ic-check')} 已選取</span> <button class="btn btn-g btn-xs" onclick="DD.cancel('${date}','${sl.start}')">${ico('ic-x')} 取消</button></div></div>`;}
+      else{return `<div class="slot-row"><div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div><div class="slot-r"><span class="sp sp-t">已被預約</span><span class="booker-em">${info.name||'—'}</span></div></div>`;}
     }).join('');
   },
   async book(date,start,end){
-    const ev=S.event;
-    try{L.show();await api.post('/api/user/book',{eventId:ev.id,date,slotStart:start,slotEnd:end});Toast.show('時段預約成功','s');await MC.loadAll();await MC.refreshQ();MC.buildGrid();await DD.render(date,DD.sched);}
-    catch(e){Toast.show(e.message,'e');}finally{L.hide();}
+    const ev=S.event;try{L.show();await api.post('/api/user/book',{eventId:ev.id,date,slotStart:start,slotEnd:end});Toast.show('時段預約成功','s');await DD.render(date,DD.sched);await MC.loadAll();await MC.refreshQ();MC.buildGrid();}catch(e){Toast.show(e.message,'e');}finally{L.hide();}
   },
   async cancel(date,start){
-    const ev=S.event;
-    try{L.show();await api.del('/api/user/book',{eventId:ev.id,date,slotStart:start});Toast.show('已取消該時段','i');await MC.loadAll();await MC.refreshQ();MC.buildGrid();await DD.render(date,DD.sched);}
-    catch(e){Toast.show(e.message,'e');}finally{L.hide();}
+    const ev=S.event;try{L.show();await api.del('/api/user/book',{eventId:ev.id,date,slotStart:start});Toast.show('已取消該時段','i');await DD.render(date,DD.sched);await MC.loadAll();await MC.refreshQ();MC.buildGrid();}catch(e){Toast.show(e.message,'e');}finally{L.hide();}
   },
 };
 

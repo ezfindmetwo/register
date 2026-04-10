@@ -37,10 +37,11 @@ def init_db():
     with get_db() as c:
         c.executescript("""
         CREATE TABLE IF NOT EXISTS admin_settings (
-            id       INTEGER PRIMARY KEY DEFAULT 1,
-            password TEXT NOT NULL DEFAULT 'admin123'
+            id           INTEGER PRIMARY KEY DEFAULT 1,
+            password     TEXT NOT NULL DEFAULT 'admin123',
+            auto_logout  INTEGER NOT NULL DEFAULT 30
         );
-        INSERT OR IGNORE INTO admin_settings(id, password) VALUES(1, 'admin123');
+        INSERT OR IGNORE INTO admin_settings(id, password, auto_logout) VALUES(1, 'admin123', 30);
         CREATE TABLE IF NOT EXISTS email_settings (
             id INTEGER PRIMARY KEY,
             provider   TEXT NOT NULL DEFAULT 'smtp',
@@ -133,6 +134,7 @@ def init_db():
             except: pass
         # 建立索引（欄位加完後才能建）
         for idx_sql in [
+            "ALTER TABLE admin_settings ADD COLUMN auto_logout INTEGER NOT NULL DEFAULT 30",
             "CREATE INDEX IF NOT EXISTS idx_users_line ON users(line_user_id)",
         ]:
             try: c.execute(idx_sql)
@@ -539,6 +541,102 @@ def admin_bookings():
 @admin_required
 def del_booking(bid):
     with get_db() as c: c.execute('DELETE FROM slot_bookings WHERE id=?', (bid,))
+    return ok()
+
+@app.get('/api/admin/export')
+@admin_required
+def export_bookings():
+    import csv, io
+    from flask import Response
+    with get_db() as c:
+        rows = c.execute(
+            'SELECT u.chinese_name,u.display_name,u.email,u.line_user_id,'
+            'b.booking_date,b.slot_start_time,b.slot_end_time,'
+            'ev.name as event_name '
+            'FROM slot_bookings b '
+            'JOIN users u ON b.user_id=u.id '
+            'JOIN events ev ON b.event_id=ev.id '
+            'ORDER BY b.booking_date,b.slot_start_time').fetchall()
+    buf = io.StringIO()
+    buf.write('﻿')  # BOM for Excel UTF-8
+    w = csv.writer(buf)
+    w.writerow(['活動名稱','中文姓名','LINE顯示名稱','Email','LINE User ID','預約日期','開始時間','結束時間'])
+    for r in rows:
+        w.writerow([r['event_name'], r['chinese_name'] or '', r['display_name'] or '',
+                    r['email'] or '', r['line_user_id'] or '',
+                    r['booking_date'], str(r['slot_start_time'])[:5], str(r['slot_end_time'])[:5]])
+    buf.seek(0)
+    return Response(buf.getvalue(), mimetype='text/csv; charset=utf-8-sig',
+                    headers={'Content-Disposition': 'attachment; filename="bookings.csv"'})
+
+@app.post('/api/admin/import')
+@admin_required
+def import_bookings():
+    import csv, io
+    f = request.files.get('file')
+    if not f: return err('請上傳 CSV 檔案')
+    text = f.stream.read().decode('utf-8-sig').strip()
+    reader = csv.DictReader(io.StringIO(text))
+    skipped = 0; imported = 0; errors = []
+    with get_db() as c:
+        ev = c.execute('SELECT id FROM events ORDER BY id DESC LIMIT 1').fetchone()
+        if not ev: return err('請先建立活動')
+        eid = ev['id']
+        for i, row in enumerate(reader, 2):
+            try:
+                name  = (row.get('中文姓名') or '').strip()
+                email = (row.get('Email') or '').strip()
+                line_uid = (row.get('LINE User ID') or '').strip()
+                date  = (row.get('預約日期') or '').strip()
+                ts    = (row.get('開始時間') or '').strip()
+                te    = (row.get('結束時間') or '').strip()
+                if not date or not ts: skipped += 1; continue
+                # Find or create user
+                user = None
+                if line_uid:
+                    user = c.execute('SELECT id FROM users WHERE line_user_id=?', (line_uid,)).fetchone()
+                if not user and email:
+                    user = c.execute('SELECT id FROM users WHERE email=?', (email,)).fetchone()
+                if not user:
+                    uid = c.execute(
+                        'INSERT INTO users(line_user_id,email,chinese_name,display_name) VALUES(?,?,?,?)',
+                        (line_uid or None, email or None, name or None, name or None)).lastrowid
+                else:
+                    uid = user['id']
+                    if name: c.execute('UPDATE users SET chinese_name=? WHERE id=? AND chinese_name IS NULL', (name, uid))
+                # Check if slot already exists
+                exists = c.execute(
+                    'SELECT id FROM slot_bookings WHERE event_id=? AND user_id=? AND booking_date=? AND slot_start_time=?',
+                    (eid, uid, date, ts)).fetchone()
+                if exists: skipped += 1; continue
+                # Check event slot conflict (same slot taken by someone else)
+                conflict = c.execute(
+                    'SELECT id FROM slot_bookings WHERE event_id=? AND booking_date=? AND slot_start_time=?',
+                    (eid, date, ts)).fetchone()
+                if conflict: skipped += 1; errors.append(f'第{i}行：{date} {ts} 時段已被他人預約'); continue
+                c.execute(
+                    'INSERT INTO slot_bookings(event_id,user_id,booking_date,slot_start_time,slot_end_time) VALUES(?,?,?,?,?)',
+                    (eid, uid, date, ts, te))
+                imported += 1
+            except Exception as e:
+                errors.append(f'第{i}行錯誤：{e}')
+    return ok(imported=imported, skipped=skipped, errors=errors[:10])
+
+@app.get('/api/admin/settings')
+@admin_required
+def get_admin_settings():
+    with get_db() as c:
+        row = c.execute('SELECT auto_logout FROM admin_settings WHERE id=1').fetchone()
+    return ok(auto_logout=row['auto_logout'] if row else 30)
+
+@app.put('/api/admin/settings')
+@admin_required
+def save_admin_settings():
+    d = request.json or {}
+    al = int(d.get('auto_logout', 30))
+    if al < 1: al = 1
+    with get_db() as c:
+        c.execute('INSERT OR REPLACE INTO admin_settings(id,password,auto_logout) VALUES(1,(SELECT password FROM admin_settings WHERE id=1),?)', (al,))
     return ok()
 
 # ══════════════════════════════════════════════════════════════════════════════
