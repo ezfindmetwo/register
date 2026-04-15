@@ -37,9 +37,13 @@ def init_db():
     with get_db() as c:
         c.executescript("""
         CREATE TABLE IF NOT EXISTS admin_settings (
-            id           INTEGER PRIMARY KEY DEFAULT 1,
-            password     TEXT NOT NULL DEFAULT 'admin123',
-            auto_logout  INTEGER NOT NULL DEFAULT 30
+            id             INTEGER PRIMARY KEY DEFAULT 1,
+            password       TEXT NOT NULL DEFAULT 'admin123',
+            auto_logout    INTEGER NOT NULL DEFAULT 30,
+            gsheet_id      TEXT DEFAULT '',
+            gsheet_client  TEXT DEFAULT '',
+            gsheet_tab     TEXT DEFAULT '',
+            log_sheet_tab  TEXT DEFAULT ''
         );
         INSERT OR IGNORE INTO admin_settings(id, password, auto_logout) VALUES(1, 'admin123', 30);
         CREATE TABLE IF NOT EXISTS email_settings (
@@ -60,6 +64,8 @@ def init_db():
             slot_duration INTEGER NOT NULL DEFAULT 30,
             max_slots_per_user INTEGER NOT NULL DEFAULT 3,
             is_open INTEGER NOT NULL DEFAULT 0,
+            is_archived INTEGER NOT NULL DEFAULT 0,
+            booking_message TEXT DEFAULT '',
             created_at TEXT DEFAULT (datetime('now')),
             updated_at TEXT DEFAULT (datetime('now'))
         );
@@ -95,6 +101,7 @@ def init_db():
             user_id INTEGER NOT NULL REFERENCES users(id),
             booking_date TEXT NOT NULL,
             slot_start_time TEXT NOT NULL, slot_end_time TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'booked',
             created_at TEXT DEFAULT (datetime('now')),
             UNIQUE(event_id, booking_date, slot_start_time)
         );
@@ -118,6 +125,14 @@ def init_db():
             UNIQUE(event_id, excluded_date)
         );
         CREATE INDEX IF NOT EXISTS idx_excluded_event ON event_excluded_dates(event_id);
+        CREATE TABLE IF NOT EXISTS event_excluded_users (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id     INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+            line_user_id TEXT,
+            note         TEXT DEFAULT '',
+            UNIQUE(event_id, line_user_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_excl_usr_event ON event_excluded_users(event_id);
         """)
     # Migration: add columns (idempotent)
     with get_db() as c:
@@ -125,6 +140,15 @@ def init_db():
             "ALTER TABLE events ADD COLUMN schedule_mode TEXT NOT NULL DEFAULT 'uniform'",
             "ALTER TABLE email_settings ADD COLUMN provider TEXT NOT NULL DEFAULT 'smtp'",
             "ALTER TABLE email_settings ADD COLUMN api_key TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE events ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE events ADD COLUMN booking_message TEXT DEFAULT ''",
+
+            "ALTER TABLE admin_settings ADD COLUMN gsheet_id TEXT DEFAULT ''",
+            "ALTER TABLE admin_settings ADD COLUMN gsheet_client TEXT DEFAULT ''",
+            "ALTER TABLE admin_settings ADD COLUMN gsheet_tab TEXT DEFAULT ''",
+            "ALTER TABLE admin_settings ADD COLUMN log_sheet_tab TEXT DEFAULT ''",
+            "ALTER TABLE slot_bookings ADD COLUMN status TEXT NOT NULL DEFAULT 'booked'",
+
             "ALTER TABLE users ADD COLUMN line_user_id TEXT",
             "ALTER TABLE users ADD COLUMN chinese_name TEXT",
             "ALTER TABLE users ADD COLUMN display_name TEXT",
@@ -469,10 +493,99 @@ def email_test():
     except Exception as e:
         return err(f'發送失敗：{e}')
 
+@app.get('/api/admin/events')
+@admin_required
+def list_events():
+    with get_db() as c:
+        rows = c.execute(
+            'SELECT id,name,start_date,end_date,is_open,is_archived,created_at '
+            'FROM events ORDER BY is_archived ASC, id DESC').fetchall()
+    return jsonify(rows_to_list(rows))
+
+@app.post('/api/admin/event/archive')
+@admin_required
+def archive_event():
+    d = request.json or {}
+    eid = d.get('id'); archived = 1 if d.get('archive') else 0
+    if not eid: return err('缺少活動 ID')
+    with get_db() as c:
+        c.execute('UPDATE events SET is_archived=?,is_open=0 WHERE id=?', (archived, eid))
+    return ok()
+
+@app.get('/api/admin/event/<int:eid>/excluded-users')
+@admin_required
+def get_excluded_users(eid):
+    with get_db() as c:
+        rows = c.execute(
+            'SELECT eu.id, eu.line_user_id, eu.note, u.display_name '
+            'FROM event_excluded_users eu '
+            'LEFT JOIN users u ON eu.line_user_id=u.line_user_id '
+            'WHERE eu.event_id=? ORDER BY eu.id', (eid,)).fetchall()
+    return jsonify(rows_to_list(rows))
+
+@app.post('/api/admin/event/<int:eid>/import-excluded')
+@admin_required
+def import_excluded_users(eid):
+    import csv, io
+    f = request.files.get('file')
+    if not f: return err('請上傳 CSV 檔案')
+    text = f.stream.read().decode('utf-8-sig').strip()
+    reader = csv.DictReader(io.StringIO(text))
+    added = 0; skipped = 0
+    with get_db() as c:
+        ev = c.execute('SELECT id FROM events WHERE id=?', (eid,)).fetchone()
+        if not ev: return err('活動不存在')
+        for row in reader:
+            line_uid = (row.get('LINE User ID') or '').strip()
+            display  = (row.get('LINE顯示名稱') or row.get('中文姓名') or '').strip()
+            if not line_uid: skipped += 1; continue
+            try:
+                c.execute(
+                    'INSERT OR IGNORE INTO event_excluded_users(event_id,line_user_id,note) VALUES(?,?,?)',
+                    (eid, line_uid, display))
+                if c.execute('SELECT changes()').fetchone()[0]: added += 1
+                else: skipped += 1
+            except: skipped += 1
+    return ok(added=added, skipped=skipped)
+
+@app.delete('/api/admin/event/<int:eid>/excluded-users/<int:uid>')
+@admin_required
+def remove_excluded_user(eid, uid):
+    with get_db() as c:
+        c.execute('DELETE FROM event_excluded_users WHERE id=? AND event_id=?', (uid, eid))
+    return ok()
+
+@app.delete('/api/admin/event/<int:eid>/excluded-users')
+@admin_required
+def clear_excluded_users(eid):
+    with get_db() as c:
+        c.execute('DELETE FROM event_excluded_users WHERE event_id=?', (eid,))
+    return ok()
+
+@app.delete('/api/admin/event/<int:eid>')
+@admin_required
+def delete_event(eid):
+    with get_db() as c:
+        c.execute('DELETE FROM event_day_schedules WHERE event_id=?', (eid,))
+        c.execute('DELETE FROM event_excluded_dates WHERE event_id=?', (eid,))
+        c.execute('DELETE FROM slot_bookings WHERE event_id=?', (eid,))
+        c.execute('DELETE FROM events WHERE id=?', (eid,))
+    return ok()
+
 @app.get('/api/admin/event')
 @admin_required
 def get_admin_event():
-    with get_db() as c: return jsonify(_load_event_full(c))
+    eid = request.args.get('id', type=int)
+    with get_db() as c:
+        if eid:
+            ev = dict(c.execute('SELECT * FROM events WHERE id=?',(eid,)).fetchone() or {})
+            if not ev: return jsonify(None)
+            ev['day_schedules'] = _get_day_schedules(c, eid)
+            ev['allowed_days']  = [r['day_of_week'] for r in ev['day_schedules']]
+            ex = c.execute('SELECT excluded_date,note FROM event_excluded_dates WHERE event_id=? ORDER BY excluded_date',(eid,)).fetchall()
+            ev['excluded_dates'] = rows_to_list(ex)
+            return jsonify(ev)
+        return jsonify(_load_event_full(c))
 
 @app.post('/api/admin/event')
 @admin_required
@@ -488,17 +601,19 @@ def save_event():
         uni_dur   = int(d.get('slotDuration', 30))
 
         if eid:
+            msg = (d.get('bookingMessage') or '').strip()
             c.execute("""UPDATE events SET name=?,start_date=?,end_date=?,schedule_mode=?,
-                slot_start_time=?,slot_end_time=?,slot_duration=?,max_slots_per_user=?,updated_at=? WHERE id=?""",
+                slot_start_time=?,slot_end_time=?,slot_duration=?,max_slots_per_user=?,booking_message=?,updated_at=? WHERE id=?""",
                 (d['name'],d['startDate'],d['endDate'],mode,uni_start,uni_end,uni_dur,
-                 int(d['maxSlotsPerUser']),now_str(),eid))
+                 int(d['maxSlotsPerUser']),msg,now_str(),eid))
             c.execute('DELETE FROM event_day_schedules WHERE event_id=?', (eid,))
         else:
+            msg = (d.get('bookingMessage') or '').strip()
             cur = c.execute("""INSERT INTO events(name,start_date,end_date,schedule_mode,
-                slot_start_time,slot_end_time,slot_duration,max_slots_per_user)
-                VALUES(?,?,?,?,?,?,?,?)""",
+                slot_start_time,slot_end_time,slot_duration,max_slots_per_user,booking_message)
+                VALUES(?,?,?,?,?,?,?,?,?)""",
                 (d['name'],d['startDate'],d['endDate'],mode,uni_start,uni_end,uni_dur,
-                 int(d['maxSlotsPerUser'])))
+                 int(d['maxSlotsPerUser']),msg))
             eid = cur.lastrowid
 
         # Save per-day schedules
@@ -528,12 +643,26 @@ def toggle_event():
 @app.get('/api/admin/bookings')
 @admin_required
 def admin_bookings():
+    eid = request.args.get('eventId', type=int)
     with get_db() as c:
-        rows = c.execute(
-            'SELECT b.id,b.event_id,u.email,u.chinese_name,u.display_name,'
-            'b.booking_date,b.slot_start_time,b.slot_end_time,b.created_at '
-            'FROM slot_bookings b JOIN users u ON b.user_id=u.id '
-            'ORDER BY b.booking_date,b.slot_start_time').fetchall()
+        if eid:
+            rows = c.execute(
+                'SELECT b.id,b.event_id,ev.name as event_name,'
+                'u.email,u.chinese_name,u.display_name,u.line_user_id,'
+                'b.booking_date,b.slot_start_time,b.slot_end_time,b.created_at '
+                'FROM slot_bookings b JOIN users u ON b.user_id=u.id '
+                'JOIN events ev ON b.event_id=ev.id '
+                'WHERE b.event_id=? '
+                'ORDER BY b.booking_date,b.slot_start_time', (eid,)).fetchall()
+        else:
+            rows = c.execute(
+                'SELECT b.id,b.event_id,ev.name as event_name,'
+                'u.email,u.chinese_name,u.display_name,u.line_user_id,'
+                'b.booking_date,b.slot_start_time,b.slot_end_time,b.created_at '
+                'FROM slot_bookings b JOIN users u ON b.user_id=u.id '
+                'JOIN events ev ON b.event_id=ev.id '
+                'WHERE ev.is_archived=0 '
+                'ORDER BY b.event_id,b.booking_date,b.slot_start_time').fetchall()
     return jsonify(rows_to_list(rows))
 
 @app.delete('/api/admin/booking/<int:bid>')
@@ -547,15 +676,18 @@ def del_booking(bid):
 def export_bookings():
     import csv, io
     from flask import Response
+    eid = request.args.get('eventId', type=int)
     with get_db() as c:
-        rows = c.execute(
-            'SELECT u.chinese_name,u.display_name,u.email,u.line_user_id,'
-            'b.booking_date,b.slot_start_time,b.slot_end_time,'
-            'ev.name as event_name '
-            'FROM slot_bookings b '
-            'JOIN users u ON b.user_id=u.id '
-            'JOIN events ev ON b.event_id=ev.id '
-            'ORDER BY b.booking_date,b.slot_start_time').fetchall()
+        q = ('SELECT u.chinese_name,u.display_name,u.email,u.line_user_id,'
+             'b.booking_date,b.slot_start_time,b.slot_end_time,'
+             'ev.name as event_name '
+             'FROM slot_bookings b '
+             'JOIN users u ON b.user_id=u.id '
+             'JOIN events ev ON b.event_id=ev.id ')
+        if eid:
+            rows = c.execute(q + 'WHERE b.event_id=? ORDER BY b.booking_date,b.slot_start_time', (eid,)).fetchall()
+        else:
+            rows = c.execute(q + 'ORDER BY b.booking_date,b.slot_start_time').fetchall()
     buf = io.StringIO()
     buf.write('﻿')  # BOM for Excel UTF-8
     w = csv.writer(buf)
@@ -691,17 +823,64 @@ def import_event():
 @admin_required
 def get_admin_settings():
     with get_db() as c:
-        row = c.execute('SELECT auto_logout FROM admin_settings WHERE id=1').fetchone()
-    return ok(auto_logout=row['auto_logout'] if row else 30)
+        row = c.execute('SELECT auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab FROM admin_settings WHERE id=1').fetchone()
+    if not row: return ok(auto_logout=0, gsheet_id='', gsheet_client='', gsheet_tab='', log_sheet_tab='')
+    return ok(auto_logout=row['auto_logout'], gsheet_id=row['gsheet_id'] or '', gsheet_client=row['gsheet_client'] or '', gsheet_tab=row['gsheet_tab'] or '', log_sheet_tab=row['log_sheet_tab'] or '')
+
+@app.get('/api/admin/export-settings')
+@admin_required
+def export_settings():
+    import json
+    from flask import Response
+    with get_db() as c:
+        row = c.execute('SELECT auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab FROM admin_settings WHERE id=1').fetchone()
+    data = {
+        'auto_logout':   row['auto_logout'] if row else 0,
+        'gsheet_id':     row['gsheet_id']     if row else '',
+        'gsheet_client': row['gsheet_client'] if row else '',
+        'gsheet_tab':    row['gsheet_tab']    if row else '',
+        'log_sheet_tab': row['log_sheet_tab'] if row else '',
+        'note': '此檔案包含系統設定，請妥善保管。不含密碼。'
+    }
+    out = json.dumps(data, ensure_ascii=False, indent=2)
+    return Response(out, mimetype='application/json',
+                    headers={'Content-Disposition': 'attachment; filename="system_settings.json"'})
+
+@app.post('/api/admin/import-settings')
+@admin_required
+def import_settings():
+    import json
+    f = request.files.get('file')
+    if not f: return err('請上傳 JSON 檔案')
+    try:
+        d = json.loads(f.stream.read().decode('utf-8'))
+    except Exception as e:
+        return err('JSON 格式錯誤：' + str(e))
+    al           = int(d.get('auto_logout', 0))
+    gsheet_id    = (d.get('gsheet_id')     or '').strip()
+    gsheet_client= (d.get('gsheet_client') or '').strip()
+    gsheet_tab   = (d.get('gsheet_tab')    or '').strip()
+    log_sheet_tab= (d.get('log_sheet_tab') or '').strip()
+    with get_db() as c:
+        c.execute(
+            'INSERT OR REPLACE INTO admin_settings(id,password,auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab) '
+            'VALUES(1,(SELECT password FROM admin_settings WHERE id=1),?,?,?,?,?)',
+            (al, gsheet_id, gsheet_client, gsheet_tab, log_sheet_tab))
+    return ok()
 
 @app.put('/api/admin/settings')
 @admin_required
 def save_admin_settings():
     d = request.json or {}
-    al = int(d.get('auto_logout', 30))
-    if al < 1: al = 1
+    al = int(d.get('auto_logout', 0))
+    gsheet_id  = (d.get('gsheet_id')     or '').strip()
+    gsheet_client = (d.get('gsheet_client') or '').strip()
+    gsheet_tab     = (d.get('gsheet_tab')     or '').strip()
+    log_sheet_tab  = (d.get('log_sheet_tab')  or '').strip()
     with get_db() as c:
-        c.execute('INSERT OR REPLACE INTO admin_settings(id,password,auto_logout) VALUES(1,(SELECT password FROM admin_settings WHERE id=1),?)', (al,))
+        c.execute('INSERT OR REPLACE INTO admin_settings(id,password,auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab) '
+                  'VALUES(1,(SELECT password FROM admin_settings WHERE id=1),?,?,?,?,?)',
+                  (al, gsheet_id, gsheet_client, gsheet_tab, log_sheet_tab))
     return ok()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -839,9 +1018,13 @@ def init_db():
     with get_db() as c:
         c.executescript("""
         CREATE TABLE IF NOT EXISTS admin_settings (
-            id           INTEGER PRIMARY KEY DEFAULT 1,
-            password     TEXT NOT NULL DEFAULT 'admin123',
-            auto_logout  INTEGER NOT NULL DEFAULT 30
+            id             INTEGER PRIMARY KEY DEFAULT 1,
+            password       TEXT NOT NULL DEFAULT 'admin123',
+            auto_logout    INTEGER NOT NULL DEFAULT 30,
+            gsheet_id      TEXT DEFAULT '',
+            gsheet_client  TEXT DEFAULT '',
+            gsheet_tab     TEXT DEFAULT '',
+            log_sheet_tab  TEXT DEFAULT ''
         );
         INSERT OR IGNORE INTO admin_settings(id, password, auto_logout) VALUES(1, 'admin123', 30);
         CREATE TABLE IF NOT EXISTS email_settings (
@@ -862,6 +1045,8 @@ def init_db():
             slot_duration INTEGER NOT NULL DEFAULT 30,
             max_slots_per_user INTEGER NOT NULL DEFAULT 3,
             is_open INTEGER NOT NULL DEFAULT 0,
+            is_archived INTEGER NOT NULL DEFAULT 0,
+            booking_message TEXT DEFAULT '',
             created_at TEXT DEFAULT (datetime('now')),
             updated_at TEXT DEFAULT (datetime('now'))
         );
@@ -897,6 +1082,7 @@ def init_db():
             user_id INTEGER NOT NULL REFERENCES users(id),
             booking_date TEXT NOT NULL,
             slot_start_time TEXT NOT NULL, slot_end_time TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'booked',
             created_at TEXT DEFAULT (datetime('now')),
             UNIQUE(event_id, booking_date, slot_start_time)
         );
@@ -920,6 +1106,14 @@ def init_db():
             UNIQUE(event_id, excluded_date)
         );
         CREATE INDEX IF NOT EXISTS idx_excluded_event ON event_excluded_dates(event_id);
+        CREATE TABLE IF NOT EXISTS event_excluded_users (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id     INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+            line_user_id TEXT,
+            note         TEXT DEFAULT '',
+            UNIQUE(event_id, line_user_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_excl_usr_event ON event_excluded_users(event_id);
         """)
     # Migration: add columns (idempotent)
     with get_db() as c:
@@ -927,6 +1121,15 @@ def init_db():
             "ALTER TABLE events ADD COLUMN schedule_mode TEXT NOT NULL DEFAULT 'uniform'",
             "ALTER TABLE email_settings ADD COLUMN provider TEXT NOT NULL DEFAULT 'smtp'",
             "ALTER TABLE email_settings ADD COLUMN api_key TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE events ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE events ADD COLUMN booking_message TEXT DEFAULT ''",
+
+            "ALTER TABLE admin_settings ADD COLUMN gsheet_id TEXT DEFAULT ''",
+            "ALTER TABLE admin_settings ADD COLUMN gsheet_client TEXT DEFAULT ''",
+            "ALTER TABLE admin_settings ADD COLUMN gsheet_tab TEXT DEFAULT ''",
+            "ALTER TABLE admin_settings ADD COLUMN log_sheet_tab TEXT DEFAULT ''",
+            "ALTER TABLE slot_bookings ADD COLUMN status TEXT NOT NULL DEFAULT 'booked'",
+
             "ALTER TABLE users ADD COLUMN line_user_id TEXT",
             "ALTER TABLE users ADD COLUMN chinese_name TEXT",
             "ALTER TABLE users ADD COLUMN display_name TEXT",
@@ -1271,10 +1474,99 @@ def email_test():
     except Exception as e:
         return err(f'發送失敗：{e}')
 
+@app.get('/api/admin/events')
+@admin_required
+def list_events():
+    with get_db() as c:
+        rows = c.execute(
+            'SELECT id,name,start_date,end_date,is_open,is_archived,created_at '
+            'FROM events ORDER BY is_archived ASC, id DESC').fetchall()
+    return jsonify(rows_to_list(rows))
+
+@app.post('/api/admin/event/archive')
+@admin_required
+def archive_event():
+    d = request.json or {}
+    eid = d.get('id'); archived = 1 if d.get('archive') else 0
+    if not eid: return err('缺少活動 ID')
+    with get_db() as c:
+        c.execute('UPDATE events SET is_archived=?,is_open=0 WHERE id=?', (archived, eid))
+    return ok()
+
+@app.get('/api/admin/event/<int:eid>/excluded-users')
+@admin_required
+def get_excluded_users(eid):
+    with get_db() as c:
+        rows = c.execute(
+            'SELECT eu.id, eu.line_user_id, eu.note, u.display_name '
+            'FROM event_excluded_users eu '
+            'LEFT JOIN users u ON eu.line_user_id=u.line_user_id '
+            'WHERE eu.event_id=? ORDER BY eu.id', (eid,)).fetchall()
+    return jsonify(rows_to_list(rows))
+
+@app.post('/api/admin/event/<int:eid>/import-excluded')
+@admin_required
+def import_excluded_users(eid):
+    import csv, io
+    f = request.files.get('file')
+    if not f: return err('請上傳 CSV 檔案')
+    text = f.stream.read().decode('utf-8-sig').strip()
+    reader = csv.DictReader(io.StringIO(text))
+    added = 0; skipped = 0
+    with get_db() as c:
+        ev = c.execute('SELECT id FROM events WHERE id=?', (eid,)).fetchone()
+        if not ev: return err('活動不存在')
+        for row in reader:
+            line_uid = (row.get('LINE User ID') or '').strip()
+            display  = (row.get('LINE顯示名稱') or row.get('中文姓名') or '').strip()
+            if not line_uid: skipped += 1; continue
+            try:
+                c.execute(
+                    'INSERT OR IGNORE INTO event_excluded_users(event_id,line_user_id,note) VALUES(?,?,?)',
+                    (eid, line_uid, display))
+                if c.execute('SELECT changes()').fetchone()[0]: added += 1
+                else: skipped += 1
+            except: skipped += 1
+    return ok(added=added, skipped=skipped)
+
+@app.delete('/api/admin/event/<int:eid>/excluded-users/<int:uid>')
+@admin_required
+def remove_excluded_user(eid, uid):
+    with get_db() as c:
+        c.execute('DELETE FROM event_excluded_users WHERE id=? AND event_id=?', (uid, eid))
+    return ok()
+
+@app.delete('/api/admin/event/<int:eid>/excluded-users')
+@admin_required
+def clear_excluded_users(eid):
+    with get_db() as c:
+        c.execute('DELETE FROM event_excluded_users WHERE event_id=?', (eid,))
+    return ok()
+
+@app.delete('/api/admin/event/<int:eid>')
+@admin_required
+def delete_event(eid):
+    with get_db() as c:
+        c.execute('DELETE FROM event_day_schedules WHERE event_id=?', (eid,))
+        c.execute('DELETE FROM event_excluded_dates WHERE event_id=?', (eid,))
+        c.execute('DELETE FROM slot_bookings WHERE event_id=?', (eid,))
+        c.execute('DELETE FROM events WHERE id=?', (eid,))
+    return ok()
+
 @app.get('/api/admin/event')
 @admin_required
 def get_admin_event():
-    with get_db() as c: return jsonify(_load_event_full(c))
+    eid = request.args.get('id', type=int)
+    with get_db() as c:
+        if eid:
+            ev = dict(c.execute('SELECT * FROM events WHERE id=?',(eid,)).fetchone() or {})
+            if not ev: return jsonify(None)
+            ev['day_schedules'] = _get_day_schedules(c, eid)
+            ev['allowed_days']  = [r['day_of_week'] for r in ev['day_schedules']]
+            ex = c.execute('SELECT excluded_date,note FROM event_excluded_dates WHERE event_id=? ORDER BY excluded_date',(eid,)).fetchall()
+            ev['excluded_dates'] = rows_to_list(ex)
+            return jsonify(ev)
+        return jsonify(_load_event_full(c))
 
 @app.post('/api/admin/event')
 @admin_required
@@ -1290,17 +1582,19 @@ def save_event():
         uni_dur   = int(d.get('slotDuration', 30))
 
         if eid:
+            msg = (d.get('bookingMessage') or '').strip()
             c.execute("""UPDATE events SET name=?,start_date=?,end_date=?,schedule_mode=?,
-                slot_start_time=?,slot_end_time=?,slot_duration=?,max_slots_per_user=?,updated_at=? WHERE id=?""",
+                slot_start_time=?,slot_end_time=?,slot_duration=?,max_slots_per_user=?,booking_message=?,updated_at=? WHERE id=?""",
                 (d['name'],d['startDate'],d['endDate'],mode,uni_start,uni_end,uni_dur,
-                 int(d['maxSlotsPerUser']),now_str(),eid))
+                 int(d['maxSlotsPerUser']),msg,now_str(),eid))
             c.execute('DELETE FROM event_day_schedules WHERE event_id=?', (eid,))
         else:
+            msg = (d.get('bookingMessage') or '').strip()
             cur = c.execute("""INSERT INTO events(name,start_date,end_date,schedule_mode,
-                slot_start_time,slot_end_time,slot_duration,max_slots_per_user)
-                VALUES(?,?,?,?,?,?,?,?)""",
+                slot_start_time,slot_end_time,slot_duration,max_slots_per_user,booking_message)
+                VALUES(?,?,?,?,?,?,?,?,?)""",
                 (d['name'],d['startDate'],d['endDate'],mode,uni_start,uni_end,uni_dur,
-                 int(d['maxSlotsPerUser'])))
+                 int(d['maxSlotsPerUser']),msg))
             eid = cur.lastrowid
 
         # Save per-day schedules
@@ -1330,12 +1624,26 @@ def toggle_event():
 @app.get('/api/admin/bookings')
 @admin_required
 def admin_bookings():
+    eid = request.args.get('eventId', type=int)
     with get_db() as c:
-        rows = c.execute(
-            'SELECT b.id,b.event_id,u.email,u.chinese_name,u.display_name,'
-            'b.booking_date,b.slot_start_time,b.slot_end_time,b.created_at '
-            'FROM slot_bookings b JOIN users u ON b.user_id=u.id '
-            'ORDER BY b.booking_date,b.slot_start_time').fetchall()
+        if eid:
+            rows = c.execute(
+                'SELECT b.id,b.event_id,ev.name as event_name,'
+                'u.email,u.chinese_name,u.display_name,u.line_user_id,'
+                'b.booking_date,b.slot_start_time,b.slot_end_time,b.created_at '
+                'FROM slot_bookings b JOIN users u ON b.user_id=u.id '
+                'JOIN events ev ON b.event_id=ev.id '
+                'WHERE b.event_id=? '
+                'ORDER BY b.booking_date,b.slot_start_time', (eid,)).fetchall()
+        else:
+            rows = c.execute(
+                'SELECT b.id,b.event_id,ev.name as event_name,'
+                'u.email,u.chinese_name,u.display_name,u.line_user_id,'
+                'b.booking_date,b.slot_start_time,b.slot_end_time,b.created_at '
+                'FROM slot_bookings b JOIN users u ON b.user_id=u.id '
+                'JOIN events ev ON b.event_id=ev.id '
+                'WHERE ev.is_archived=0 '
+                'ORDER BY b.event_id,b.booking_date,b.slot_start_time').fetchall()
     return jsonify(rows_to_list(rows))
 
 @app.delete('/api/admin/booking/<int:bid>')
@@ -1349,15 +1657,18 @@ def del_booking(bid):
 def export_bookings():
     import csv, io
     from flask import Response
+    eid = request.args.get('eventId', type=int)
     with get_db() as c:
-        rows = c.execute(
-            'SELECT u.chinese_name,u.display_name,u.email,u.line_user_id,'
-            'b.booking_date,b.slot_start_time,b.slot_end_time,'
-            'ev.name as event_name '
-            'FROM slot_bookings b '
-            'JOIN users u ON b.user_id=u.id '
-            'JOIN events ev ON b.event_id=ev.id '
-            'ORDER BY b.booking_date,b.slot_start_time').fetchall()
+        q = ('SELECT u.chinese_name,u.display_name,u.email,u.line_user_id,'
+             'b.booking_date,b.slot_start_time,b.slot_end_time,'
+             'ev.name as event_name '
+             'FROM slot_bookings b '
+             'JOIN users u ON b.user_id=u.id '
+             'JOIN events ev ON b.event_id=ev.id ')
+        if eid:
+            rows = c.execute(q + 'WHERE b.event_id=? ORDER BY b.booking_date,b.slot_start_time', (eid,)).fetchall()
+        else:
+            rows = c.execute(q + 'ORDER BY b.booking_date,b.slot_start_time').fetchall()
     buf = io.StringIO()
     buf.write('﻿')  # BOM for Excel UTF-8
     w = csv.writer(buf)
@@ -1493,17 +1804,64 @@ def import_event():
 @admin_required
 def get_admin_settings():
     with get_db() as c:
-        row = c.execute('SELECT auto_logout FROM admin_settings WHERE id=1').fetchone()
-    return ok(auto_logout=row['auto_logout'] if row else 30)
+        row = c.execute('SELECT auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab FROM admin_settings WHERE id=1').fetchone()
+    if not row: return ok(auto_logout=0, gsheet_id='', gsheet_client='', gsheet_tab='', log_sheet_tab='')
+    return ok(auto_logout=row['auto_logout'], gsheet_id=row['gsheet_id'] or '', gsheet_client=row['gsheet_client'] or '', gsheet_tab=row['gsheet_tab'] or '', log_sheet_tab=row['log_sheet_tab'] or '')
+
+@app.get('/api/admin/export-settings')
+@admin_required
+def export_settings():
+    import json
+    from flask import Response
+    with get_db() as c:
+        row = c.execute('SELECT auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab FROM admin_settings WHERE id=1').fetchone()
+    data = {
+        'auto_logout':   row['auto_logout'] if row else 0,
+        'gsheet_id':     row['gsheet_id']     if row else '',
+        'gsheet_client': row['gsheet_client'] if row else '',
+        'gsheet_tab':    row['gsheet_tab']    if row else '',
+        'log_sheet_tab': row['log_sheet_tab'] if row else '',
+        'note': '此檔案包含系統設定，請妥善保管。不含密碼。'
+    }
+    out = json.dumps(data, ensure_ascii=False, indent=2)
+    return Response(out, mimetype='application/json',
+                    headers={'Content-Disposition': 'attachment; filename="system_settings.json"'})
+
+@app.post('/api/admin/import-settings')
+@admin_required
+def import_settings():
+    import json
+    f = request.files.get('file')
+    if not f: return err('請上傳 JSON 檔案')
+    try:
+        d = json.loads(f.stream.read().decode('utf-8'))
+    except Exception as e:
+        return err('JSON 格式錯誤：' + str(e))
+    al           = int(d.get('auto_logout', 0))
+    gsheet_id    = (d.get('gsheet_id')     or '').strip()
+    gsheet_client= (d.get('gsheet_client') or '').strip()
+    gsheet_tab   = (d.get('gsheet_tab')    or '').strip()
+    log_sheet_tab= (d.get('log_sheet_tab') or '').strip()
+    with get_db() as c:
+        c.execute(
+            'INSERT OR REPLACE INTO admin_settings(id,password,auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab) '
+            'VALUES(1,(SELECT password FROM admin_settings WHERE id=1),?,?,?,?,?)',
+            (al, gsheet_id, gsheet_client, gsheet_tab, log_sheet_tab))
+    return ok()
 
 @app.put('/api/admin/settings')
 @admin_required
 def save_admin_settings():
     d = request.json or {}
-    al = int(d.get('auto_logout', 30))
-    if al < 1: al = 1
+    al = int(d.get('auto_logout', 0))
+    gsheet_id  = (d.get('gsheet_id')     or '').strip()
+    gsheet_client = (d.get('gsheet_client') or '').strip()
+    gsheet_tab     = (d.get('gsheet_tab')     or '').strip()
+    log_sheet_tab  = (d.get('log_sheet_tab')  or '').strip()
     with get_db() as c:
-        c.execute('INSERT OR REPLACE INTO admin_settings(id,password,auto_logout) VALUES(1,(SELECT password FROM admin_settings WHERE id=1),?)', (al,))
+        c.execute('INSERT OR REPLACE INTO admin_settings(id,password,auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab) '
+                  'VALUES(1,(SELECT password FROM admin_settings WHERE id=1),?,?,?,?,?)',
+                  (al, gsheet_id, gsheet_client, gsheet_tab, log_sheet_tab))
     return ok()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1666,26 +2024,94 @@ def book():
     with get_db() as c:
         ev = c.execute('SELECT max_slots_per_user,is_open FROM events WHERE id=?', (eid,)).fetchone()
         if not ev or not ev['is_open']: return err('活動不存在或已關閉')
-        cnt = c.execute('SELECT COUNT(*) as cnt FROM slot_bookings WHERE event_id=? AND user_id=?',
+        cnt = c.execute(
+            "SELECT COUNT(*) as cnt FROM slot_bookings WHERE event_id=? AND user_id=? AND (status IS NULL OR status!='cancelled')",
             (eid, uid)).fetchone()['cnt']
         if cnt >= ev['max_slots_per_user']: return err(f"已達上限（最多 {ev['max_slots_per_user']} 個時段）")
-        if c.execute('SELECT id FROM slot_bookings WHERE event_id=? AND booking_date=? AND slot_start_time=?',
-                     (eid,date,ss)).fetchone(): return err('該時段已被他人預約')
-        try:
-            c.execute('INSERT INTO slot_bookings(event_id,user_id,booking_date,slot_start_time,slot_end_time) VALUES(?,?,?,?,?)',
-                      (eid,uid,date,ss,se))
-        except sqlite3.IntegrityError: return err('該時段已被搶先預約')
+        u_row = c.execute('SELECT line_user_id FROM users WHERE id=?', (uid,)).fetchone()
+        if u_row and u_row['line_user_id']:
+            excl = c.execute('SELECT id FROM event_excluded_users WHERE event_id=? AND line_user_id=?',
+                             (eid, u_row['line_user_id'])).fetchone()
+            if excl: return err('您已參加其他活動，此活動不開放重複報名')
+        # Check if slot is taken (booked or finding_sub)
+        existing = c.execute(
+            "SELECT id,user_id,status FROM slot_bookings WHERE event_id=? AND booking_date=? AND slot_start_time=? AND (status IS NULL OR status!='cancelled')",
+            (eid, date, ss)).fetchone()
+        if existing:
+            if existing['status'] == 'finding_sub':
+                # Take over: mark original as cancelled, then create new booking
+                c.execute("UPDATE slot_bookings SET status='cancelled' WHERE id=?", (existing['id'],))
+                # Return old user info for log
+                old_uid = existing['user_id']
+            else:
+                return err('該時段已被他人預約')
+        else:
+            old_uid = None
+        if old_uid is not None:
+            # Takeover: UPDATE the finding_sub→cancelled row to new user
+            c.execute(
+                "UPDATE slot_bookings SET user_id=?,slot_end_time=?,status='booked' WHERE event_id=? AND booking_date=? AND slot_start_time=? AND status='cancelled'",
+                (uid, se, eid, date, ss))
+        else:
+            # Check if there's a cancelled row (from a previous takeover) - reuse it
+            cancelled_row = c.execute(
+                "SELECT id FROM slot_bookings WHERE event_id=? AND booking_date=? AND slot_start_time=? AND status='cancelled'",
+                (eid, date, ss)).fetchone()
+            if cancelled_row:
+                c.execute(
+                    "UPDATE slot_bookings SET user_id=?,slot_end_time=?,status='booked' WHERE id=?",
+                    (uid, se, cancelled_row['id']))
+            else:
+                try:
+                    c.execute('INSERT INTO slot_bookings(event_id,user_id,booking_date,slot_start_time,slot_end_time,status) VALUES(?,?,?,?,?,?)',
+                              (eid, uid, date, ss, se, 'booked'))
+                except Exception: return err('該時段已被搶先預約')
+    return ok(old_uid=old_uid)
+
+@app.post('/api/user/find-sub')
+@user_required
+def find_sub():
+    d = request.json or {}
+    eid, date, ss = d.get('eventId'), d.get('date'), d.get('slotStart')
+    uid = session['user_id']
+    with get_db() as c:
+        # Check if already finding_sub
+        already = c.execute(
+            "SELECT id FROM slot_bookings WHERE event_id=? AND user_id=? AND booking_date=? AND slot_start_time=? AND status='finding_sub'",
+            (eid, uid, date, ss)).fetchone()
+        if already: return ok()  # Already in finding_sub state, no error
+        row = c.execute(
+            "SELECT id FROM slot_bookings WHERE event_id=? AND user_id=? AND booking_date=? AND slot_start_time=? AND (status='booked' OR status IS NULL)",
+            (eid, uid, date, ss)).fetchone()
+        if not row: return err('找不到此預約或狀態不符')
+        c.execute("UPDATE slot_bookings SET status='finding_sub' WHERE id=?", (row['id'],))
+    return ok()
+
+@app.post('/api/user/cancel-find-sub')
+@user_required
+def cancel_find_sub():
+    d = request.json or {}
+    eid, date, ss = d.get('eventId'), d.get('date'), d.get('slotStart')
+    uid = session['user_id']
+    with get_db() as c:
+        row = c.execute(
+            "SELECT id FROM slot_bookings WHERE event_id=? AND user_id=? AND booking_date=? AND slot_start_time=? AND status='finding_sub'",
+            (eid, uid, date, ss)).fetchone()
+        if not row: return err('找不到此尋找替代人的預約')
+        c.execute("UPDATE slot_bookings SET status='booked' WHERE id=?", (row['id'],))
     return ok()
 
 @app.delete('/api/user/book')
 @user_required
 def cancel():
-    d = request.json or {}
-    eid,date,ss = d.get('eventId'),d.get('date'),d.get('slotStart')
-    uid = session['user_id']
+    # Only admin can cancel; users use find-sub
+    return err('使用者無法直接取消預約，請使用「尋找替代人」功能', 403)
+
+@app.delete('/api/admin/booking-force/<int:bid>')
+@admin_required
+def admin_cancel_booking(bid):
     with get_db() as c:
-        c.execute('DELETE FROM slot_bookings WHERE event_id=? AND user_id=? AND booking_date=? AND slot_start_time=?',
-                  (eid,uid,date,ss))
+        c.execute('DELETE FROM slot_bookings WHERE id=?', (bid,))
     return ok()
 
 
@@ -1735,16 +2161,19 @@ def day_slots():
     if not eid or not date: return err('缺少參數')
     with get_db() as c:
         bks = c.execute(
-            'SELECT b.slot_start_time, b.slot_end_time, '
+            'SELECT b.id, b.slot_start_time, b.slot_end_time, '
+            "COALESCE(b.status,'booked') AS status, "
             'u.display_name, u.picture_url, '
             'CASE WHEN b.user_id=? THEN 1 ELSE 0 END AS is_mine '
             'FROM slot_bookings b JOIN users u ON b.user_id=u.id '
-            'WHERE b.event_id=? AND b.booking_date=?',
+            "WHERE b.event_id=? AND b.booking_date=? AND (b.status IS NULL OR b.status!='cancelled')",
             (uid, eid, date)).fetchall()
         my_total = c.execute(
-            'SELECT COUNT(*) as cnt FROM slot_bookings WHERE event_id=? AND user_id=?',
+            "SELECT COUNT(*) as cnt FROM slot_bookings WHERE event_id=? AND user_id=? AND (status='booked' OR status='finding_sub' OR status IS NULL)",
             (eid, uid)).fetchone()['cnt']
-    return jsonify(bookings=rows_to_list(bks), my_total=my_total)
+        ev_row = c.execute('SELECT max_slots_per_user FROM events WHERE id=?',(eid,)).fetchone()
+        max_slots = ev_row['max_slots_per_user'] if ev_row else 3
+    return jsonify(bookings=rows_to_list(bks), my_total=my_total, max_slots=max_slots)
 
 
 # ── All Availability (entire event range) ──────────────────────────────────────
@@ -1758,18 +2187,29 @@ def all_availability():
     uid = session['user_id']
     with get_db() as c:
         ev = c.execute('SELECT start_date,end_date FROM events WHERE id=?',(eid,)).fetchone()
+        u_row = c.execute('SELECT line_user_id FROM users WHERE id=?',(uid,)).fetchone()
+        line_uid_check = u_row['line_user_id'] if u_row else None
+        is_excluded = bool(line_uid_check and c.execute(
+            'SELECT id FROM event_excluded_users WHERE event_id=? AND line_user_id=?',
+            (eid, line_uid_check)).fetchone())
         if not ev: return err('活動不存在')
         dow_cnt = _get_dow_cnt(c, eid)
         bk_rows = c.execute(
-            "SELECT b.booking_date, CASE WHEN b.user_id=? THEN 1 ELSE 0 END AS is_mine "
-            "FROM slot_bookings b WHERE b.event_id=?",
+            "SELECT b.booking_date, b.status, CASE WHEN b.user_id=? THEN 1 ELSE 0 END AS is_mine "
+            "FROM slot_bookings b WHERE b.event_id=? AND (b.status IS NULL OR b.status!='cancelled')",
             (uid, eid)).fetchall()
     day_booked = defaultdict(int)
-    my_dates = set()
+    my_dates = []   # list of booked slot dates (allows duplicates for multi-slot same day)
+    my_dates_set = set()  # for calendar dot display
     for r in bk_rows:
-        day_booked[r['booking_date']] += 1
-        if r['is_mine']:
-            my_dates.add(r['booking_date'])
+        # finding_sub: open for others to take, but still counts for day slot availability
+        if r['status'] != 'finding_sub':
+            day_booked[r['booking_date']] += 1
+        # finding_sub still counts toward user quota (not freed until someone takes over)
+        # Only cancelled is freed
+        if r['is_mine'] and r['status'] != 'cancelled':
+            my_dates.append(r['booking_date'])
+            my_dates_set.add(r['booking_date'])
     ev_s = dict(ev)['start_date']
     ev_e = dict(ev)['end_date']
     with get_db() as c2:
@@ -1794,7 +2234,7 @@ def all_availability():
                     status = 'open'
                 result[ds2] = {'status': status, 'total': total, 'booked': booked}
         cur += _td(days=1)
-    return jsonify(availability=result, my_dates=list(my_dates), excluded_dates=excluded_list)
+    return jsonify(availability=result, my_dates=list(my_dates_set), my_total=len(my_dates), excluded_dates=excluded_list, is_excluded=is_excluded)
 
 @app.get('/')
 def index(): return send_from_directory('public', 'index.html')

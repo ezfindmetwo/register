@@ -52,7 +52,7 @@ a{color:inherit;text-decoration:none}
 .fade-up{animation:fadeUp .28s ease both}
 
 /* ─── Toast ─────────────────────────────────── */
-#toast{position:fixed;top:16px;right:16px;z-index:9999;pointer-events:none;display:flex;flex-direction:column;gap:8px;align-items:flex-end}
+#toast{position:fixed;bottom:24px;right:16px;z-index:9999;pointer-events:none;display:flex;flex-direction:column-reverse;gap:8px;align-items:flex-end}
 .tmsg{padding:11px 18px;border-radius:10px;font-size:13px;font-weight:600;color:#fff;max-width:320px;line-height:1.5;animation:slideR .22s ease;box-shadow:0 4px 20px rgba(0,0,0,.25)}
 .ti{background:#2563eb}.ts{background:#059669}.te{background:#dc2626}.tk{background:#7c3aed}
 
@@ -182,6 +182,22 @@ a{color:inherit;text-decoration:none}
   border-radius:9px;padding:12px 14px;font-size:20px;text-align:center;outline:none;
   letter-spacing:.15em;transition:border-color .18s}
 .name-inp:focus{border-color:var(--ac)}
+.ev-list{display:flex;flex-direction:column;gap:10px;margin-bottom:20px}
+.ev-card{background:var(--s0);border:1.5px solid var(--bd);border-radius:12px;padding:14px 18px;
+  display:flex;align-items:center;gap:14px;cursor:pointer;transition:border-color .18s,box-shadow .18s}
+.ev-card:hover{border-color:var(--ac);box-shadow:var(--sh)}
+.ev-card.archived{opacity:.55}
+.ev-card-main{flex:1;min-width:0}
+.ev-card-name{font-weight:700;color:var(--t1);font-size:14px;margin-bottom:3px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev-card-meta{font-size:11px;color:var(--t4)}
+.ev-card-acts{display:flex;gap:7px;flex-shrink:0}
+.detail-hd{display:flex;align-items:center;gap:10px;margin-bottom:16px;padding-bottom:12px;border-bottom:1.5px solid var(--bd)}
+.detail-hd-ttl{font-size:15px;font-weight:700;color:var(--t1);flex:1}
+.ev-editor{background:var(--s0);border:2px solid var(--ac);border-radius:14px;
+  padding:20px;margin-bottom:20px;position:relative}
+.ev-editor-ttl{font-size:13px;font-weight:700;color:var(--ac);margin-bottom:16px;
+  display:flex;align-items:center;gap:7px}
 .code-inp{width:100%;background:var(--s1);border:1px solid var(--bd);color:var(--t1);border-radius:10px;padding:14px;font-size:34px;font-family:'Courier New',monospace;letter-spacing:.35em;text-align:center;outline:none;transition:border-color .18s}
 .code-inp:focus{border-color:var(--ac);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
 .divider{border:none;border-top:1px solid var(--bd);margin:16px 0}
@@ -245,6 +261,10 @@ a{color:inherit;text-decoration:none}
 /* Booked email tag in day detail */
 .booker-em{font-size:11px;color:var(--t3);font-family:'Courier New',monospace;background:var(--s1);border:1px solid var(--bd);padding:2px 8px;border-radius:5px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .booker-avatar{width:28px;height:28px;border-radius:50%;object-fit:cover;border:1.5px solid var(--bd);flex-shrink:0}
+.sp-sub{background:#fef3c7;color:#92400e;border:1px solid #fcd34d}
+.sp-exp{background:var(--s2);color:var(--t4);border:1px solid var(--bd)}
+.slot-row.expired{opacity:.45;pointer-events:none}
+.slot-row.finding-sub .sp{background:#fef3c7;color:#92400e}
 .booker-info{display:flex;align-items:center;gap:7px}
 .booker-name{font-size:12px;color:var(--t2);font-weight:600;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Excluded date pills (admin) */
@@ -389,7 +409,23 @@ a{color:inherit;text-decoration:none}
 
     <!-- ── Event Tab ── -->
     <div class="panel" id="tab-ev">
-      <h3><svg class="ico" style="font-size:15px"><use href="#ic-target"/></svg> 活動設定</h3>
+      <!-- Event list header -->
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+        <h3 style="margin:0"><svg class="ico" style="font-size:15px"><use href="#ic-target"/></svg> 活動管理</h3>
+        <button class="btn btn-p btn-sm" onclick="Admin.newEvent()">
+          <svg class="ico"><use href="#ic-check"/></svg> 新增活動
+        </button>
+      </div>
+      <div class="ev-list" id="ev-list"><div class="nodata">載入中…</div></div>
+
+      <!-- Event editor (detail view) -->
+      <div id="ev-editor" class="ev-editor hidden">
+        <div class="detail-hd">
+          <button class="btn btn-g btn-sm" onclick="Admin.closeEditor()">
+            <svg class="ico" style="font-size:13px"><use href="#ic-back"/></svg> 回上一頁
+          </button>
+          <span class="detail-hd-ttl" id="ev-editor-ttl-txt">編輯活動</span>
+        </div>
       <input type="hidden" id="ev-id">
       <div class="fg"><label class="fl">活動名稱</label><input class="fi" id="ev-name" placeholder="例：2025 年健康檢查預約"></div>
       <div class="fg2">
@@ -399,6 +435,11 @@ a{color:inherit;text-decoration:none}
       <div class="fg" style="max-width:240px">
         <label class="fl">每人最多可選時段數</label>
         <input class="fi" type="number" id="ev-max" value="3" min="1" max="100">
+      </div>
+      <div class="fg">
+        <label class="fl">預約確認訊息（選填）</label>
+        <textarea class="fi" id="ev-msg" rows="3" placeholder="例：預約前請確認您已閱讀注意事項，預約後不得任意取消，請珍惜名額。" style="resize:vertical;min-height:72px"></textarea>
+        <p style="font-size:11px;color:var(--t4);margin-top:3px">填寫後，使用者點「預約」時會先顯示此訊息，二度確認後才完成預約。留空則直接預約。</p>
       </div>
       <hr class="divider">
       <div style="margin-bottom:12px">
@@ -449,12 +490,27 @@ a{color:inherit;text-decoration:none}
         <div class="ex-pills" id="ex-pills"><span style="color:var(--t4);font-size:12px">尚未設定排除日期</span></div>
       </div>
       <hr class="divider">
+      <hr class="divider">
+      <!-- Excluded users (2選1) -->
+      <div style="margin-bottom:16px">
+        <div class="fl" style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:8px">🚫 排除人員（2選1限制）</div>
+        <p style="font-size:12px;color:var(--t3);margin-bottom:10px">從其他活動的預約 CSV 匯入，被列入的人將無法報名此活動。</p>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+          <input type="file" id="excl-file" accept=".csv" style="font-size:12px;color:var(--t2)">
+          <button class="btn btn-p btn-sm" onclick="Admin.importExcluded()"><svg class="ico"><use href="#ic-check"/></svg> 匯入排除名單</button>
+          <button class="btn btn-r btn-sm" onclick="Admin.clearExcluded()" id="btn-clear-excl" style="display:none">清除全部</button>
+        </div>
+        <div id="excl-res" class="hidden" style="margin-bottom:8px"></div>
+        <div id="excl-list" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+      </div>
+
       <div style="display:flex;gap:9px;flex-wrap:wrap">
         <button class="btn btn-p" onclick="Admin.saveEv()"><svg class="ico"><use href="#ic-check"/></svg> 儲存設定</button>
         <button class="btn btn-ok hidden" id="btn-open" onclick="Admin.toggleOpen(true)">開放報名</button>
         <button class="btn btn-er hidden" id="btn-close" onclick="Admin.toggleOpen(false)">關閉報名</button>
       </div>
       <div class="hidden" id="ev-st"></div>
+      </div><!-- /ev-editor -->
     </div>
 
     <!-- ── Email Tab ── -->
@@ -499,8 +555,21 @@ a{color:inherit;text-decoration:none}
 
     <!-- ── Bookings Tab ── -->
     <div class="panel hidden" id="tab-bk">
-      <h3><svg class="ico" style="font-size:15px"><use href="#ic-list"/></svg> 預約清單</h3>
-      <div id="bk-list"><div class="nodata">載入中…</div></div>
+      <!-- Level 1: Event list -->
+      <div id="bk-ev-list-view">
+        <h3><svg class="ico" style="font-size:15px"><use href="#ic-list"/></svg> 預約清單</h3>
+        <div id="bk-ev-list"><div class="nodata">載入中…</div></div>
+      </div>
+      <!-- Level 2: Booking detail for one event -->
+      <div id="bk-detail-view" style="display:none">
+        <div class="detail-hd">
+          <button class="btn btn-g btn-sm" onclick="Admin.closeBkDetail()">
+            <svg class="ico" style="font-size:13px"><use href="#ic-back"/></svg> 回上一頁
+          </button>
+          <span class="detail-hd-ttl" id="bk-detail-ttl"></span>
+        </div>
+        <div id="bk-list"><div class="nodata">載入中…</div></div>
+      </div>
     </div>
 
     <!-- ── Password Tab ── -->
@@ -541,8 +610,75 @@ a{color:inherit;text-decoration:none}
         <hr class="divider" style="margin:0">
         <div>
           <div class="fl" style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:8px">匯出預約資料</div>
-          <p style="font-size:12px;color:var(--t3);margin-bottom:10px">將所有預約記錄匯出為 CSV（UTF-8 BOM，Excel 可直接開啟）</p>
-          <a href="/api/admin/export" class="btn btn-g btn-sm" style="text-decoration:none;display:inline-flex">↓ 下載 CSV</a>
+          <p style="font-size:12px;color:var(--t3);margin-bottom:10px">匯出為 CSV，可選擇特定活動或全部。</p>
+          <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+            <select id="exp-ev-sel" class="fi" style="width:auto;flex:1;min-width:160px">
+              <option value="">全部活動（非封存）</option>
+            </select>
+            <a id="btn-export" href="/api/admin/export" class="btn btn-g btn-sm" style="text-decoration:none;display:inline-flex" onclick="Admin.updateExportLink()">
+              ↓ 下載 CSV
+            </a>
+            <button class="btn btn-p btn-sm" onclick="Admin.exportToGSheet()" id="btn-gsheet-exp" style="display:none">
+              📊 同步到 Google Sheet
+            </button>
+          </div>
+          <div id="gsheet-exp-res" class="hidden" style="font-size:12px;margin-top:6px"></div>
+        </div>
+
+        <hr class="divider" style="margin:0">
+
+        <!-- Google Sheet Settings -->
+        <div>
+          <div class="fl" style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:8px">📊 Google Sheet 設定</div>
+          <p style="font-size:12px;color:var(--t3);margin-bottom:10px">設定後可直接同步預約資料到指定的 Google 試算表。
+            <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:var(--ac)">→ 取得 OAuth Client ID</a>
+          </p>
+          <div class="fg" style="max-width:480px">
+            <label class="fl">Google Sheet ID</label>
+            <input class="fi" id="sys-gsheet-id" placeholder="試算表網址 /d/ 後面那段" type="text">
+            <p style="font-size:11px;color:var(--t4);margin-top:3px">例：https://docs.google.com/spreadsheets/d/<strong>這一段</strong>/edit</p>
+          </div>
+          <div class="fg" style="max-width:480px;margin-top:8px">
+            <label class="fl">Google OAuth Client ID</label>
+            <input class="fi" id="sys-gsheet-client" placeholder="xxxxxx.apps.googleusercontent.com" type="text">
+          </div>
+          <div class="fg" style="max-width:480px;margin-top:8px">
+            <label class="fl">工作表名稱（預設：自動偵測第一個工作表）</label>
+            <input class="fi" id="sys-gsheet-tab" placeholder="例：工作表1 或 Sheet1 或 預約資料" type="text">
+            <p style="font-size:11px;color:var(--t4);margin-top:3px">留空則自動使用試算表的第一個工作表</p>
+          </div>
+          <div class="fg" style="max-width:480px;margin-top:8px">
+            <label class="fl">流水帳工作表名稱（異動記錄）</label>
+            <input class="fi" id="sys-log-tab" placeholder="例：異動記錄 或 Log" type="text">
+            <p style="font-size:11px;color:var(--t4);margin-top:3px">每次預約/尋找替代人/接手等操作都會寫入此工作表。留空則不記錄。</p>
+          </div>
+          <button class="btn btn-p btn-sm" style="margin-top:10px" onclick="Admin.saveSettings()">
+            <svg class="ico"><use href="#ic-check"/></svg> 儲存設定
+          </button>
+          <div id="sys-gsheet-hint" style="display:none;margin-top:10px;padding:10px 14px;background:var(--s1);border-radius:8px;font-size:12px;color:var(--t3)">
+            ✅ Google Sheet 已設定，「同步到 Google Sheet」按鈕已啟用。首次使用需授權 Google 帳號。
+          </div>
+        </div>
+
+        <hr class="divider" style="margin:0">
+
+        <!-- Export / Import system settings -->
+        <div>
+          <div class="fl" style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:8px">⚙ 匯出／匯入系統設定</div>
+          <p style="font-size:12px;color:var(--t3);margin-bottom:10px">
+            將自動登出、Google Sheet 等設定匯出為 JSON，方便備份或遷移到新環境。不含管理者密碼。
+          </p>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+            <a href="/api/admin/export-settings" class="btn btn-g btn-sm" style="text-decoration:none;display:inline-flex">
+              ↓ 匯出設定 JSON
+            </a>
+            <span style="color:var(--t4);font-size:12px">或</span>
+            <input type="file" id="imp-sys-file" accept=".json" style="font-size:12px;color:var(--t2)">
+            <button class="btn btn-p btn-sm" onclick="Admin.importSysSettings()">
+              <svg class="ico"><use href="#ic-check"/></svg> 匯入設定
+            </button>
+          </div>
+          <div id="imp-sys-res" class="hidden" style="font-size:12px"></div>
         </div>
         <hr class="divider" style="margin:0">
         <div>
@@ -639,6 +775,10 @@ a{color:inherit;text-decoration:none}
       <button class="tbtn" onclick="Theme.toggle()"><svg class="ico" style="font-size:12px"><use href="#ic-moon"/></svg><span class="tl">夜色模式</span></button>
       <button class="btn btn-g btn-sm" onclick="User.logout()">登出</button>
     </div>
+  </div>
+  <div id="mc-excl-warn" style="display:none;background:var(--er-bg);border:1px solid var(--er-bd);
+    border-radius:10px;padding:12px 16px;margin:0 0 14px;color:var(--er-tx);font-size:13px;font-weight:600">
+    ⛔ 您已參加另一個活動，此活動不開放重複報名（2選1限制）。
   </div>
   <div class="mc-body" id="mc-body"></div>
 </div>
@@ -757,35 +897,185 @@ const App={
 /* ── Admin ──────────────────────────────── */
 const Admin={
   mode:'uniform',emailProvider:'resend',excludedDates:[],
-  async load(){await Promise.all([Admin.loadEv(),Admin.loadBk(),Admin.loadEm(),Admin.loadSettings()]);},
+  async load(){await Promise.all([Admin.loadEventList(),Admin.loadBk(),Admin.loadEm(),Admin.loadSettings()]);},
   tab(n,btn){
     ['ev','em','bk','pw','sys'].forEach(t=>{const el=document.getElementById('tab-'+t);if(el)el.classList.add('hidden');});
+    if(n==='ev')Admin.loadEventList();
     const panel=document.getElementById('tab-'+n);if(panel)panel.classList.remove('hidden');
     document.querySelectorAll('.tabbtn').forEach(b=>b.classList.remove('on'));btn.classList.add('on');
     if(n==='bk')Admin.loadBk();
   },
-  async loadEv(){
+  async loadEventList(){
+    // Always hide editor, show list when loading event list
+    const editor=document.getElementById('ev-editor');
+    if(editor)editor.classList.add('hidden');
+    const listWrap=document.getElementById('ev-list');
+    if(listWrap)listWrap.style.display='';
+    const list=document.getElementById('ev-list');
+    if(!list)return;
     try{
-      const ev=await api.get('/api/admin/event');if(!ev){Admin.buildPD([]);return;}
+      const evs=await api.get('/api/admin/events');
+      if(!evs||!evs.length){list.innerHTML='<div class="nodata">尚無活動，點「新增活動」開始建立</div>';return;}
+      list.innerHTML=evs.map(ev=>{
+        const archived=ev.is_archived;
+        const statusBadge=archived
+          ?'<span class="sp" style="background:var(--s2);color:var(--t4)">已封存</span>'
+          :ev.is_open?'<span class="sp sp-m">報名開放中</span>':'<span class="sp sp-t">報名已關閉</span>';
+        return `<div class="ev-card${archived?' archived':''}" onclick="Admin.openEvent(${ev.id})">
+          <div class="ev-card-main">
+            <div class="ev-card-name">${ev.name}</div>
+            <div class="ev-card-meta">${(ev.start_date||'').substring(0,10)} ～ ${(ev.end_date||'').substring(0,10)}</div>
+          </div>
+          ${statusBadge}
+          <div class="ev-card-acts" onclick="event.stopPropagation()">
+            ${archived
+              ?`<button class="btn btn-g btn-sm" onclick="Admin.archiveEvent(${ev.id},false)" title="取消封存">還原</button>`
+              :`<button class="btn btn-g btn-sm" onclick="Admin.archiveEvent(${ev.id},true)" title="封存">封存</button>`}
+            <button class="btn btn-r btn-sm" onclick="Admin.deleteEvent(${ev.id},'${ev.name.replace(/'/g,'')}')" title="刪除">刪除</button>
+          </div>
+        </div>`;
+      }).join('');
+    }catch(e){list.innerHTML=`<div class="nodata">載入失敗：${e.message}</div>`;}
+  },
+
+  newEvent(){
+    document.getElementById('ev-id').value='';
+    document.getElementById('ev-name').value='';
+    document.getElementById('ev-s').value='';
+    document.getElementById('ev-e').value='';
+    document.getElementById('ev-max').value='3';
+    document.getElementById('ev-msg').value='';
+    document.getElementById('ev-st').classList.add('hidden');
+    document.getElementById('btn-open').classList.add('hidden');
+    document.getElementById('btn-close').classList.add('hidden');
+    Admin.setMode('uniform',document.getElementById('mt-uniform'));
+    Admin.excludedDates=[];Admin.renderExDates();
+    Admin.buildPD([]);
+    document.getElementById('ev-editor-ttl-txt').textContent='新增活動';
+    document.getElementById('ev-editor').classList.remove('hidden');
+    document.getElementById('ev-name').focus();
+  },
+
+  async openEvent(eid){
+    try{L.show();
+      const ev=await api.get('/api/admin/event?id='+eid);
+      if(!ev){Toast.show('找不到活動','e');return;}
       document.getElementById('ev-id').value=ev.id;
       document.getElementById('ev-name').value=ev.name||'';
       document.getElementById('ev-s').value=(ev.start_date||'').substring(0,10);
       document.getElementById('ev-e').value=(ev.end_date||'').substring(0,10);
       document.getElementById('ev-max').value=ev.max_slots_per_user||3;
-      const mode=ev.schedule_mode||'uniform';Admin.setMode(mode,document.getElementById('mt-'+mode));
-      if(mode==='uniform'){const ds=ev.day_schedules||[];const f=ds[0];if(f){document.getElementById('u-ts').value=f.slot_start_time||'09:00';document.getElementById('u-te').value=f.slot_end_time||'17:00';document.getElementById('u-dur').value=f.slot_duration||30;}const al=new Set(ev.allowed_days||[]);document.querySelectorAll('#dpk-u .dpk').forEach(b=>b.classList.toggle('on',al.has(+b.dataset.d)));}
+      document.getElementById('ev-msg').value=ev.booking_message||'';
+      const mode=ev.schedule_mode||'uniform';
+      Admin.setMode(mode,document.getElementById('mt-'+mode));
+      if(mode==='uniform'){
+        const ds=ev.day_schedules||[];const f=ds[0];
+        if(f){document.getElementById('u-ts').value=f.slot_start_time||'09:00';
+          document.getElementById('u-te').value=f.slot_end_time||'17:00';
+          document.getElementById('u-dur').value=f.slot_duration||30;}
+        const al=new Set(ev.allowed_days||[]);
+        document.querySelectorAll('#dpk-u .dpk').forEach(b=>b.classList.toggle('on',al.has(+b.dataset.d)));
+      }
       Admin.buildPD(ev.day_schedules||[]);Admin.uPrev();
       Admin.excludedDates=(ev.excluded_dates||[]).map(d=>({date:d.excluded_date,note:d.note||''}));
       Admin.renderExDates();
       document.getElementById('btn-open').classList.toggle('hidden',!!ev.is_open);
       document.getElementById('btn-close').classList.toggle('hidden',!ev.is_open);
       const st=document.getElementById('ev-st');st.classList.remove('hidden');
-      if(ev.is_open){st.className='bopen';st.textContent='報名開放中';}else{st.className='bclosed';st.textContent='報名已關閉';}
-      document.getElementById('s-sts').textContent=ev.is_open?'開放中':'已關閉';
-      document.getElementById('s-sts').className=ev.is_open?'stat-val open':'stat-val';
-    }catch{Toast.show('載入活動失敗','e');}
+      if(ev.is_open){st.className='bopen';st.textContent='報名開放中';}
+      else{st.className='bclosed';st.textContent='報名已關閉';}
+      document.getElementById('ev-editor-ttl-txt').textContent=ev.name;
+      // Hide list, show editor (master→detail)
+      const evList=document.getElementById('ev-list');
+      if(evList)evList.style.display='none';
+      const newEvBtn=document.querySelector('[onclick="Admin.newEvent()"]');
+      if(newEvBtn)newEvBtn.style.display='none';
+      document.getElementById('ev-editor').classList.remove('hidden');
+      document.getElementById('ev-editor').scrollIntoView({behavior:'smooth',block:'start'});
+      await Admin.loadExcluded();
+    }catch(e){Toast.show(e.message,'e');}finally{L.hide();}
   },
-  setMode(m,btn){
+
+  async loadExcluded(){
+    const eid=document.getElementById('ev-id').value;
+    if(!eid)return;
+    const list=document.getElementById('excl-list');
+    const btnClear=document.getElementById('btn-clear-excl');
+    try{
+      const data=await api.get('/api/admin/event/'+eid+'/excluded-users');
+      if(!data||!data.length){list.innerHTML='<span style="color:var(--t4);font-size:12px">尚無排除人員</span>';btnClear.style.display='none';return;}
+      btnClear.style.display='';
+      list.innerHTML=data.map(u=>`<div class="excl-pill">
+        <svg class="ico" style="font-size:11px"><use href="#ic-user"/></svg>
+        ${u.display_name||u.note||u.line_user_id}
+        <button onclick="Admin.removeExcluded(${u.id})" title="移除">×</button>
+      </div>`).join('');
+    }catch{list.innerHTML='';}
+  },
+
+  async importExcluded(){
+    const eid=document.getElementById('ev-id').value;
+    if(!eid){Toast.show('請先選擇活動','e');return;}
+    const file=document.getElementById('excl-file').files[0];
+    const res=document.getElementById('excl-res');res.className='hidden';
+    if(!file){Toast.show('請選擇 CSV 檔案','e');return;}
+    const fd=new FormData();fd.append('file',file);
+    try{L.show();
+      const r=await fetch('/api/admin/event/'+eid+'/import-excluded',{method:'POST',body:fd});
+      const d=await r.json();
+      if(!r.ok)throw new Error(d.error||'匯入失敗');
+      res.className='rok';res.textContent='✓ 新增 '+d.added+' 人，跳過 '+d.skipped+' 人（已存在）';
+      res.classList.remove('hidden');
+      document.getElementById('excl-file').value='';
+      await Admin.loadExcluded();
+    }catch(e){res.className='rfail';res.textContent=e.message;res.classList.remove('hidden');}
+    finally{L.hide();}
+  },
+
+  async removeExcluded(uid){
+    const eid=document.getElementById('ev-id').value;if(!eid)return;
+    try{L.show();await api.del('/api/admin/event/'+eid+'/excluded-users/'+uid);await Admin.loadExcluded();}
+    catch(e){Toast.show(e.message,'e');}finally{L.hide();}
+  },
+
+  async clearExcluded(){
+    const eid=document.getElementById('ev-id').value;if(!eid)return;
+    if(!confirm('確定清除所有排除人員？'))return;
+    try{L.show();await api.del('/api/admin/event/'+eid+'/excluded-users');await Admin.loadExcluded();}
+    catch(e){Toast.show(e.message,'e');}finally{L.hide();}
+  },
+
+  closeEditor(){
+    document.getElementById('ev-editor').classList.add('hidden');
+    document.getElementById('ev-id').value='';
+    // Restore list view
+    const evList=document.getElementById('ev-list');if(evList)evList.style.display='';
+    const newEvBtn=document.querySelector('[onclick="Admin.newEvent()"]');if(newEvBtn)newEvBtn.style.display='';
+    Admin.loadEventList();
+  },
+
+  async archiveEvent(eid,archive){
+    const msg=archive?'封存後報名將自動關閉，確定封存？':'確定還原此活動？';
+    if(!confirm(msg))return;
+    try{L.show();await api.post('/api/admin/event/archive',{id:eid,archive});
+      Toast.show(archive?'已封存':'已還原','s');Admin.loadEventList();Admin.closeEditor();
+    }catch(e){Toast.show(e.message,'e');}finally{L.hide();}
+  },
+
+  async deleteEvent(eid,name){
+    if(!confirm('確定刪除活動「'+name+'」？此操作將同時刪除所有相關預約，且無法復原。'))return;
+    try{L.show();await api.del('/api/admin/event/'+eid);
+      Toast.show('活動已刪除','i');Admin.loadEventList();Admin.closeEditor();
+    }catch(e){Toast.show(e.message,'e');}finally{L.hide();}
+  },
+
+  async loadEv(){
+    const eid=document.getElementById('ev-id').value;
+    if(!eid)return;
+    await Admin.openEvent(+eid);
+  },
+
+    setMode(m,btn){
     Admin.mode=m;document.querySelectorAll('.mtab').forEach(b=>b.classList.remove('on'));if(btn)btn.classList.add('on');
     document.getElementById('m-uniform').classList.toggle('hidden',m!=='uniform');
     document.getElementById('m-perday').classList.toggle('hidden',m!=='per_day');
@@ -849,12 +1139,72 @@ const Admin={
     else if(prov==='resend'){if(lbl)lbl.textContent='Resend API Key';if(lnk){lnk.textContent='→ 取得 API Key';lnk.href='https://resend.com/api-keys';}}
   },
   async loadBk(){
+    // Show event list level (not detail)
+    Admin.closeBkDetail(false);
+    const list=document.getElementById('bk-ev-list');
+    if(!list)return;
+    try{
+      const evs=await api.get('/api/admin/events');
+      if(!evs||!evs.length){list.innerHTML='<div class="nodata">尚無活動</div>';return;}
+      const active=evs.filter(e=>!e.is_archived);
+      if(!active.length){list.innerHTML='<div class="nodata">尚無進行中的活動</div>';return;}
+      // Get booking counts per event
+      const allBk=await api.get('/api/admin/bookings');
+      const bkCount={};
+      allBk.forEach(b=>{bkCount[b.event_id]=(bkCount[b.event_id]||0)+1;});
+      document.getElementById('s-tot').textContent=allBk.length;
+      document.getElementById('s-usr').textContent=new Set(allBk.map(b=>b.line_user_id||b.display_name)).size;
+      list.innerHTML=active.map(ev=>`<div class="bk-event" onclick="Admin.openBkDetail(${ev.id},'${ev.name.replace(/'/g,'\'')}')" style="cursor:pointer">
+        <div class="bk-event-hd">
+          <svg class="ico" style="font-size:14px;color:var(--ac)"><use href="#ic-target"/></svg>
+          <span class="bk-event-name">${ev.name}</span>
+          <span style="color:var(--t4);font-size:12px">${bkCount[ev.id]||0} 筆</span>
+          <svg class="ico" style="font-size:12px;color:var(--t3);transform:rotate(180deg)"><use href="#ic-back"/></svg>
+        </div>
+      </div>`).join('');
+    }catch(e){list.innerHTML=`<div class="nodata">載入失敗：${e.message}</div>`;}
+  },
+
+  async openBkDetail(eid,name){
+    document.getElementById('bk-ev-list-view').style.display='none';
+    document.getElementById('bk-detail-view').style.display='';
+    document.getElementById('bk-detail-ttl').textContent=name;
     const list=document.getElementById('bk-list');
-    try{const data=await api.get('/api/admin/bookings');document.getElementById('s-tot').textContent=data.length;document.getElementById('s-usr').textContent=new Set(data.map(b=>b.email||b.line_user_id)).size;
-    if(!data.length){list.innerHTML='<div class="nodata">尚無任何預約紀錄</div>';return;}
-    const by={};data.forEach(b=>{const k=b.email||b.line_user_id||b.id;if(!by[k])by[k]=[];by[k].push(b);});
-    list.innerHTML=Object.entries(by).map(([em,sl])=>`<div class="bk-item"><div class="bk-em">${ico('ic-user')} <strong>${sl[0].chinese_name||sl[0].display_name||em}</strong> <span style="color:var(--t3);font-size:11px;font-weight:400">${em}</span> <span style="color:var(--t4);font-weight:400">（${sl.length} 個）</span></div><div class="bk-slots">${sl.sort((a,b)=>a.booking_date.localeCompare(b.booking_date)||a.slot_start_time.localeCompare(b.slot_start_time)).map(s=>`<span class="bk-pill">${s.booking_date.substring(0,10)} ${String(s.slot_start_time).substring(0,5)}</span>`).join('')}</div></div>`).join('');}
-    catch(e){list.innerHTML=`<div class="nodata">載入失敗：${e.message}</div>`;}
+    list.innerHTML='<div class="nodata">載入中…</div>';
+    try{
+      const data=await api.get('/api/admin/bookings?eventId='+eid);
+      if(!data.length){list.innerHTML='<div class="nodata">尚無預約紀錄</div>';return;}
+      const MON_TW=['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+      const byM={};
+      data.forEach(b=>{const m=String(b.booking_date).substring(0,7);if(!byM[m])byM[m]=[];byM[m].push(b);});
+      list.innerHTML=Object.keys(byM).sort().map(m=>{
+        const [yr,mo]=m.split('-');
+        const rows=byM[m].sort((a,b)=>(a.booking_date+a.slot_start_time).localeCompare(b.booking_date+b.slot_start_time)).map(s=>{
+          const name2=s.chinese_name||s.display_name||s.line_user_id||'—';
+          const time=`${s.booking_date.substring(0,10)} ${String(s.slot_start_time).substring(0,5)}`;
+          return `<div class="bk-slot-row">
+            <span class="bk-slot-time">${time}</span>
+            <span class="bk-slot-who">${ico('ic-user')} ${name2}</span>
+            <button class="btn btn-r btn-xs bk-slot-del" onclick="Admin.deleteBk(${s.id},${eid},'${name.replace(/'/g,'\'')}')" title="刪除此預約">✕</button>
+          </div>`;
+        }).join('');
+        return `<div class="bk-month"><div class="bk-month-icon"></div>${yr}年${MON_TW[+mo-1]}（${byM[m].length} 筆）</div>
+          <div class="bk-item" style="padding:8px 14px;margin-bottom:8px">${rows}</div>`;
+      }).join('');
+    }catch(e){list.innerHTML=`<div class="nodata">載入失敗：${e.message}</div>`;}
+  },
+
+  closeBkDetail(reload=true){
+    const lv=document.getElementById('bk-ev-list-view');if(lv)lv.style.display='';
+    const dv=document.getElementById('bk-detail-view');if(dv)dv.style.display='none';
+  },
+
+
+  async deleteBk(bid,eid,evName){
+    if(!confirm('確定刪除此預約？'))return;
+    try{L.show();await api.del('/api/admin/booking/'+bid);Toast.show('已刪除預約','i');
+      if(eid)await Admin.openBkDetail(eid,evName);else await Admin.loadBk();
+    }catch(e){Toast.show(e.message,'e');}finally{L.hide();}
   },
   async saveEv(){
     const name=document.getElementById('ev-name').value.trim(),sd=document.getElementById('ev-s').value,ed=document.getElementById('ev-e').value,mx=+document.getElementById('ev-max').value;
@@ -862,10 +1212,11 @@ const Admin={
     let ds=[],ss='09:00',se='17:00',sdur=30;
     if(Admin.mode==='uniform'){ss=document.getElementById('u-ts').value;se=document.getElementById('u-te').value;sdur=+document.getElementById('u-dur').value;const days=[...document.querySelectorAll('#dpk-u .dpk.on')].map(b=>+b.dataset.d);if(!days.length){Toast.show('請至少選擇一個開放日','e');return;}ds=days.map(d=>({dayOfWeek:d,slotStart:ss,slotEnd:se,slotDuration:sdur}));}
     else{document.querySelectorAll('#pd-body tr').forEach(tr=>{if(tr.querySelector('.tog').classList.contains('on'))ds.push({dayOfWeek:+tr.dataset.dow,slotStart:tr.querySelector('.pd-ts').value,slotEnd:tr.querySelector('.pd-te').value,slotDuration:+tr.querySelector('.pd-dur').value});});if(!ds.length){Toast.show('請至少啟用一天','e');return;}}
-    try{L.show();const r=await api.post('/api/admin/event',{id:document.getElementById('ev-id').value||null,name,startDate:sd,endDate:ed,scheduleMode:Admin.mode,slotStart:ss,slotEnd:se,slotDuration:sdur,maxSlotsPerUser:mx,daySchedules:ds,excludedDates:Admin.excludedDates.map(d=>({date:d.date,note:d.note}))});document.getElementById('ev-id').value=r.id;document.getElementById('btn-open').classList.remove('hidden');document.getElementById('btn-close').classList.add('hidden');const st=document.getElementById('ev-st');st.classList.remove('hidden');st.className='bclosed';st.textContent='報名已關閉';Toast.show('活動設定已儲存','s');await Admin.loadEv();}
+    try{L.show();const msg=document.getElementById('ev-msg').value.trim();
+      const r=await api.post('/api/admin/event',{id:document.getElementById('ev-id').value||null,name,startDate:sd,endDate:ed,scheduleMode:Admin.mode,bookingMessage:msg,slotStart:ss,slotEnd:se,slotDuration:sdur,maxSlotsPerUser:mx,daySchedules:ds,excludedDates:Admin.excludedDates.map(d=>({date:d.date,note:d.note}))});document.getElementById('ev-id').value=r.id;document.getElementById('btn-open').classList.remove('hidden');document.getElementById('btn-close').classList.add('hidden');const st=document.getElementById('ev-st');st.classList.remove('hidden');st.className='bclosed';st.textContent='報名已關閉';Toast.show('活動設定已儲存','s');document.getElementById('ev-editor-ttl-txt').textContent='編輯活動：'+name;await Admin.loadEventList();}
     catch(e){Toast.show(e.message,'e');}finally{L.hide();}
   },
-  async toggleOpen(o){const id=document.getElementById('ev-id').value;if(!id){Toast.show('請先儲存活動設定','e');return;}try{L.show();await api.put('/api/admin/event/toggle',{id:+id,isOpen:o});Toast.show(o?'報名已開放':'報名已關閉','s');await Admin.loadEv();}catch(e){Toast.show(e.message,'e');}finally{L.hide();}},
+  async toggleOpen(o){const id=document.getElementById('ev-id').value;if(!id){Toast.show('請先儲存活動設定','e');return;}try{L.show();await api.put('/api/admin/event/toggle',{id:+id,isOpen:o});Toast.show(o?'報名已開放':'報名已關閉','s');await Admin.loadEventList();await Admin.loadEv();}catch(e){Toast.show(e.message,'e');}finally{L.hide();}},
   async saveEm(){
     const prov=Admin.emailProvider;
     const body={provider:prov,from:prov==='resend'||prov==='brevo'?document.getElementById('em-f-resend').value.trim():document.getElementById('em-f').value.trim(),api_key:prov==='resend'||prov==='brevo'?document.getElementById('em-apikey').value:'',host:document.getElementById('em-h').value.trim(),port:+document.getElementById('em-p').value,username:document.getElementById('em-u').value.trim(),password:document.getElementById('em-pw').value,ssl:document.getElementById('em-ssl').checked};
@@ -882,14 +1233,150 @@ const Admin={
     finally{btn.innerHTML=`${ico('ic-signal')} 發信測試`;btn.disabled=false;res.classList.remove('hidden');}
   },
   async loadSettings(){
-    try{const r=await api.get('/api/admin/settings');const el=document.getElementById('sys-al');if(el)el.value=r.auto_logout||30;S._adminAutoLogout=r.auto_logout||30;}catch{}
+    try{
+      const r=await api.get('/api/admin/settings');
+      const el=document.getElementById('sys-al');if(el)el.value=r.auto_logout||0;
+      S._adminAutoLogout=r.auto_logout||0;
+      // Google Sheet fields
+      const gid=document.getElementById('sys-gsheet-id');if(gid)gid.value=r.gsheet_id||'';
+      const gcl=document.getElementById('sys-gsheet-client');if(gcl)gcl.value=r.gsheet_client||'';
+      const gtab=document.getElementById('sys-gsheet-tab');if(gtab)gtab.value=r.gsheet_tab||'';
+      S._gsheetTab=r.gsheet_tab||'';
+      const ltab=document.getElementById('sys-log-tab');if(ltab)ltab.value=r.log_sheet_tab||'';
+      S._logSheetTab=r.log_sheet_tab||'';
+      S._gsheetId=r.gsheet_id||''; S._gsheetClient=r.gsheet_client||'';
+      const hint=document.getElementById('sys-gsheet-hint');
+      const btnGs=document.getElementById('btn-gsheet-exp');
+      if(r.gsheet_id&&r.gsheet_client){if(hint)hint.style.display='';if(btnGs)btnGs.style.display='';}
+      else{if(hint)hint.style.display='none';if(btnGs)btnGs.style.display='none';}
+      // Load event options for export selector
+      const sel=document.getElementById('exp-ev-sel');
+      if(sel){
+        const evs=await api.get('/api/admin/events');
+        const opts=(evs||[]).filter(e=>!e.is_archived).map(e=>
+          `<option value="${e.id}">${e.name}</option>`).join('');
+        sel.innerHTML='<option value="">全部活動（非封存）</option>'+opts;
+      }
+    }catch{}
   },
   async saveSettings(){
     const al=+(document.getElementById('sys-al').value)||0;
+    const gid=(document.getElementById('sys-gsheet-id')||{value:''}).value.trim();
+    const gcl=(document.getElementById('sys-gsheet-client')||{value:''}).value.trim();
+    const gtab=(document.getElementById('sys-gsheet-tab')||{value:''}).value.trim();
+    const logTab=(document.getElementById('sys-log-tab')||{value:''}).value.trim();
     const res=document.getElementById('sys-res');res.className='hidden';
-    try{L.show();await api.put('/api/admin/settings',{auto_logout:al});S._adminAutoLogout=al;Admin.resetActivityTimer();res.className='rok';res.textContent='✓ 系統設定已儲存';res.classList.remove('hidden');Toast.show('設定已儲存','s');}
-    catch(e){res.className='rfail';res.textContent=e.message;res.classList.remove('hidden');}finally{L.hide();}
+    try{L.show();
+      await api.put('/api/admin/settings',{auto_logout:al,gsheet_id:gid,gsheet_client:gcl,gsheet_tab:gtab,log_sheet_tab:logTab});
+      S._adminAutoLogout=al;S._gsheetId=gid;S._gsheetClient=gcl;S._gsheetTab=gtab;S._logSheetTab=logTab;
+      Admin.resetActivityTimer();
+      const hint=document.getElementById('sys-gsheet-hint');
+      const btnGs=document.getElementById('btn-gsheet-exp');
+      if(gid&&gcl){if(hint)hint.style.display='';if(btnGs)btnGs.style.display='';}
+      else{if(hint)hint.style.display='none';if(btnGs)btnGs.style.display='none';}
+      res.className='rok';res.textContent='✓ 系統設定已儲存';res.classList.remove('hidden');
+      Toast.show('設定已儲存','s');
+    }catch(e){res.className='rfail';res.textContent=e.message;res.classList.remove('hidden');}finally{L.hide();}
   },
+
+  async importSysSettings(){
+    const file=document.getElementById('imp-sys-file').files[0];
+    const res=document.getElementById('imp-sys-res');
+    if(res)res.className='hidden';
+    if(!file){Toast.show('請選擇 JSON 檔案','e');return;}
+    const fd=new FormData();fd.append('file',file);
+    try{L.show();
+      const r=await fetch('/api/admin/import-settings',{method:'POST',body:fd});
+      const d=await r.json();
+      if(!r.ok)throw new Error(d.error||'匯入失敗');
+      if(res){res.className='rok';res.textContent='✓ 設定已成功匯入';res.classList.remove('hidden');}
+      await Admin.loadSettings();
+      Toast.show('系統設定匯入成功','s');
+    }catch(e){
+      if(res){res.className='rfail';res.textContent=e.message;res.classList.remove('hidden');}
+      Toast.show(e.message,'e');
+    }finally{L.hide();}
+  },
+
+  updateExportLink(){
+    const sel=document.getElementById('exp-ev-sel');
+    const btn=document.getElementById('btn-export');
+    if(!sel||!btn)return;
+    const eid=sel.value;
+    btn.href='/api/admin/export'+(eid?'?eventId='+eid:'');
+  },
+
+  async exportToGSheet(){
+    const eid=(document.getElementById('exp-ev-sel')||{value:''}).value;
+    const gid=S._gsheetId; const gcl=S._gsheetClient;
+    if(!gid||!gcl){Toast.show('請先設定 Google Sheet ID 和 Client ID','e');return;}
+    const res=document.getElementById('gsheet-exp-res');
+    res.className='hidden';
+
+    try{
+      // 1. Init Google Identity Services
+      if(!window.google){
+        await new Promise((ok,fail)=>{
+          const s=document.createElement('script');
+          s.src='https://accounts.google.com/gsi/client';
+          s.onload=ok;s.onerror=fail;document.head.appendChild(s);
+        });
+      }
+      // 2. Get OAuth token
+      const token = await new Promise((resolve,reject)=>{
+        const client=google.accounts.oauth2.initTokenClient({
+          client_id:gcl,
+          scope:'https://www.googleapis.com/auth/spreadsheets',
+          callback:(resp)=>{
+            if(resp.error){reject(new Error(resp.error));return;}
+            resolve(resp.access_token);
+          }
+        });
+        client.requestAccessToken({prompt:'consent'});
+      });
+
+      L.show();
+      // 3. Fetch booking data
+      const url='/api/admin/bookings'+(eid?'?eventId='+eid:'');
+      const data=await api.get(url);
+      if(!data.length){Toast.show('沒有預約資料可同步','i');L.hide();return;}
+
+      // 4. Prepare rows
+      const headers=['活動名稱','LINE顯示名稱','Email','LINE User ID','預約日期','開始時間','結束時間'];
+      const rows=[headers,...data.map(b=>[
+        b.event_name||'',b.display_name||'',b.email||'',
+        b.line_user_id||'',b.booking_date||'',
+        String(b.slot_start_time||'').substring(0,5),
+        String(b.slot_end_time||'').substring(0,5)
+      ])];
+
+      // 5. Determine sheet/tab name
+      let sheetTab=S._gsheetTab||'';
+      if(!sheetTab){
+        // Auto-detect first sheet name
+        const metaResp=await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${gid}?fields=sheets.properties.title`,
+          {headers:{'Authorization':'Bearer '+token}});
+        const metaData=await metaResp.json();
+        sheetTab=(metaData.sheets&&metaData.sheets[0]&&metaData.sheets[0].properties&&metaData.sheets[0].properties.title)||'Sheet1';
+      }
+      const range=encodeURIComponent(sheetTab+'!A1');
+      const resp=await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${gid}/values/${range}?valueInputOption=RAW`,
+        {method:'PUT',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
+         body:JSON.stringify({values:rows})});
+      const result=await resp.json();
+      if(result.error)throw new Error(result.error.message);
+
+      res.className='rok';
+      res.innerHTML=`✓ 已同步 ${data.length} 筆到 Google Sheet &nbsp;<a href="https://docs.google.com/spreadsheets/d/${gid}/edit" target="_blank" style="color:var(--ac)">開啟試算表</a>`;
+      res.classList.remove('hidden');
+      Toast.show('Google Sheet 同步成功','s');
+    }catch(e){
+      res.className='rfail';res.textContent='同步失敗：'+e.message;res.classList.remove('hidden');
+    }finally{L.hide();}
+  },
+
   async importEvent(){
     const file=document.getElementById('imp-ev-file').files[0];
     const res=document.getElementById('imp-ev-res');res.className='hidden';
@@ -971,20 +1458,47 @@ const User={
     App.show('vmc');await MC.renderAll();}
     catch(e){Toast.show(e.message,'e');App.show('vh');}finally{L.hide();}
   },
+  async writeLog(action, date, slotStart, slotEnd){
+    const gid=S._gsheetId; const gcl=S._gsheetClient; const logTab=S._logSheetTab||'';
+    if(!gid||!gcl||!logTab)return;
+    try{
+      if(!window.google){
+        await new Promise((ok,fail)=>{const s=document.createElement('script');s.src='https://accounts.google.com/gsi/client';s.onload=ok;s.onerror=fail;document.head.appendChild(s);});
+      }
+      if(!window._gsToken){
+        window._gsToken = await new Promise((resolve,reject)=>{
+          const client=google.accounts.oauth2.initTokenClient({
+            client_id:gcl,scope:'https://www.googleapis.com/auth/spreadsheets',
+            callback:(resp)=>{if(resp.error){reject(new Error(resp.error));return;}resolve(resp.access_token);}
+          });
+          client.requestAccessToken({prompt:''});
+        });
+        setTimeout(()=>{window._gsToken=null;},3500000);
+      }
+      const now=new Date().toLocaleString('zh-TW',{timeZone:'Asia/Taipei'});
+      const ev=S.event?S.event.name:'';
+      const row=[[now,ev,S.dispName||'',date,slotStart,slotEnd,action]];
+      const range=encodeURIComponent(logTab+'!A1');
+      await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${gid}/values/${range}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+        {method:'POST',headers:{'Authorization':'Bearer '+window._gsToken,'Content-Type':'application/json'},
+         body:JSON.stringify({values:row})});
+    }catch(e){console.warn('Log write failed:',e.message);}
+  },
   async logout(){await api.post('/api/user/logout').catch(()=>{});S.userId=null;S.event=null;App.show('vh');}
 };
 
 /* ── Month Calendar ─────────────────────────────── */
 const MC={
-  avail:{},myDates:new Set(),excludedDates:new Map(),
+  avail:{},myDates:new Set(),myTotal:0,excludedDates:new Map(),
   async loadAll(){
     const ev=S.event;if(!ev)return;
-    try{const r=await api.get(`/api/user/all-availability?eventId=${ev.id}`);MC.avail=r.availability||{};MC.myDates=new Set(r.my_dates||[]);MC.excludedDates=new Map((r.excluded_dates||[]).map(d=>[d.date,d.note||'']));}
+    try{const r=await api.get(`/api/user/all-availability?eventId=${ev.id}`);MC.avail=r.availability||{};MC.myDates=new Set(r.my_dates||[]);MC.myTotal=r.my_total!=null?r.my_total:MC.myDates.size;MC.excludedDates=new Map((r.excluded_dates||[]).map(d=>[d.date,d.note||'']));}
     catch{MC.avail={};MC.myDates=new Set();MC.excludedDates=new Map();}
   },
   async renderAll(){await MC.loadAll();await MC.refreshQ();MC.buildGrid();},
   async refreshQ(){
-    const ev=S.event;if(!ev)return;S.myTotal=MC.myDates.size;const max=ev.max_slots_per_user;
+    const ev=S.event;if(!ev)return;S.myTotal=MC.myTotal||MC.myDates.size;const max=ev.max_slots_per_user||3;
     const q=document.getElementById('mc-q');q.textContent=S.myTotal;q.className=S.myTotal>=max?'full':'';
     document.getElementById('mc-qwarn').style.display=S.myTotal>=max?'':'none';
     const dq=document.getElementById('dd-q');if(dq){dq.textContent=S.myTotal;document.getElementById('dd-qwarn').style.display=S.myTotal>=max?'':'none';}
@@ -1052,26 +1566,99 @@ const DD={
     if(!allSlots.length){box.innerHTML='<div class="slot-empty">此日期無可用時段</div>';return;}
     let bkData;try{bkData=await api.get(`/api/user/day-slots?eventId=${ev.id}&date=${date}`);}
     catch(e){box.innerHTML=`<div class="slot-empty">載入失敗：${e.message}</div>`;return;}
-    S.myTotal=bkData.my_total||0;const max=ev.max_slots_per_user;
+    S.myTotal=bkData.my_total||0;const max=bkData.max_slots||ev.max_slots_per_user||3;
     document.getElementById('dd-q').textContent=S.myTotal;document.getElementById('dd-q').className=S.myTotal>=max?'full':'';
     document.getElementById('dd-qwarn').style.display=S.myTotal>=max?'':'none';
     document.getElementById('mc-q').textContent=S.myTotal;document.getElementById('mc-q').className=S.myTotal>=max?'full':'';
-    const bm={};bkData.bookings.forEach(b=>{const st=String(b.slot_start_time).substring(0,5);bm[st]={mine:!!b.is_mine,name:b.display_name||'',pic:b.picture_url||''};});
+    const bm={};bkData.bookings.forEach(b=>{const st=String(b.slot_start_time).substring(0,5);bm[st]={id:b.id,mine:!!b.is_mine,name:b.display_name||'',pic:b.picture_url||'',status:b.status||'booked'};});
     const dur=sched.slot_duration;
+    const today=new Date().toISOString().substring(0,10);
+    const isPastDate=date<today;
     box.innerHTML=allSlots.map(sl=>{
       const info=bm[sl.start];
-      if(!info){const full=S.myTotal>=max;return `<div class="slot-row"><div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div><div class="slot-r"><span class="sp sp-f">可預約</span>${full?'':` <button class="btn btn-p btn-xs" onclick="DD.book('${date}','${sl.start}','${sl.end}')">${ico('ic-check')} 預約</button>`}</div></div>`;}
-      else if(info.mine){return `<div class="slot-row"><div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div><div class="slot-r"><span class="sp sp-m">${ico('ic-check')} 已選取</span> <button class="btn btn-g btn-xs" onclick="DD.cancel('${date}','${sl.start}')">${ico('ic-x')} 取消</button></div></div>`;}
-      else{const av=info.pic?`<img src="${info.pic}" class="booker-avatar" alt="">`:
+      const expired=isPastDate;
+      if(!info){
+        // Empty slot
+        if(expired)return `<div class="slot-row expired"><div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div><div class="slot-r"><span class="sp sp-exp">已過期</span></div></div>`;
+        const full=S.myTotal>=max;
+        return `<div class="slot-row"><div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div><div class="slot-r"><span class="sp sp-f">可預約</span>${full?'':` <button class="btn btn-p btn-xs" onclick="DD.book('${date}','${sl.start}','${sl.end}')">${ico('ic-check')} 預約</button>`}</div></div>`;
+      }
+      if(info.status==='finding_sub'&&!info.mine){
+        // Someone is looking for sub - others can take it
+        if(expired)return `<div class="slot-row expired"><div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div><div class="slot-r"><span class="sp sp-exp">已過期</span></div></div>`;
+        const full=S.myTotal>=max;
+        const av=info.pic?`<img src="${info.pic}" class="booker-avatar" alt="">`:
+          `<div style="width:28px;height:28px;border-radius:50%;background:#fef3c7;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0">🔄</div>`;
+        return `<div class="slot-row finding-sub"><div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div><div class="slot-r"><span class="sp sp-sub">🔄 尋找替代人</span><div class="booker-info">${av}<span class="booker-name">${info.name||'—'}</span></div>${full?'':` <button class="btn btn-p btn-xs" onclick="DD.book('${date}','${sl.start}','${sl.end}')">${ico('ic-check')} 接手</button>`}</div></div>`;
+      }
+      if(info.mine){
+        if(expired){
+          const expLabel=info.status==='finding_sub'
+            ?`<span class="sp sp-sub" style="opacity:.6">🔄 未尋到接手人</span><span style="font-size:11px;color:var(--t4);margin-left:6px">（已過期，視為使用1次）</span>`
+            :`<span class="sp sp-m" style="opacity:.6">${ico('ic-check')} 已預約</span><span style="font-size:11px;color:var(--t4);margin-left:6px">（已過期）</span>`;
+          return `<div class="slot-row expired"><div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div><div class="slot-r">${expLabel}</div></div>`;
+        }
+        const statusLabel=info.status==='finding_sub'?`<span class="sp sp-sub">🔄 尋找替代人中</span>  <button class="btn btn-g btn-xs" onclick="DD.cancelFindSub('${date}','${sl.start}')" style="font-size:10px">取消尋找</button>`:`<span class="sp sp-m">${ico('ic-check')} 已預約</span> <button class="btn btn-g btn-xs" onclick="DD.findSub('${date}','${sl.start}')" title="尋找替代人">🔄 尋找替代人</button>`;
+        return `<div class="slot-row"><div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div><div class="slot-r">${statusLabel}</div></div>`;
+      }
+      // Others' booked slot
+      const av=info.pic?`<img src="${info.pic}" class="booker-avatar" alt="">`:
         `<div style="width:28px;height:28px;border-radius:50%;background:var(--ac-bg);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--ac);flex-shrink:0">👤</div>`;
-        return `<div class="slot-row"><div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div><div class="slot-r"><span class="sp sp-t">已被預約</span><div class="booker-info">${av}<span class="booker-name">${info.name||'—'}</span></div></div></div>`;}
+      return `<div class="slot-row${expired?' expired':''}"><div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div><div class="slot-r"><span class="sp sp-t">已被預約</span><div class="booker-info">${av}<span class="booker-name">${info.name||'—'}</span></div></div></div>`;
     }).join('');
   },
   async book(date,start,end){
-    const ev=S.event;try{L.show();await api.post('/api/user/book',{eventId:ev.id,date,slotStart:start,slotEnd:end});Toast.show('時段預約成功','s');await DD.render(date,DD.sched);await MC.loadAll();await MC.refreshQ();MC.buildGrid();}catch(e){Toast.show(e.message,'e');}finally{L.hide();}
+    const ev=S.event;
+    // Always show confirm dialog; append booking_message if set
+    const msg=(ev.booking_message||'').trim();
+    const confirmed=await new Promise(resolve=>{
+      const overlay=document.createElement('div');
+      overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px';
+      overlay.innerHTML=`<div style="background:var(--s0);border-radius:16px;padding:28px;max-width:440px;width:100%;box-shadow:0 8px 40px rgba(0,0,0,.3)">
+        <div style="font-size:15px;font-weight:700;color:var(--t1);margin-bottom:14px">確認預約</div>
+        <div style="font-size:14px;color:var(--t2);margin-bottom:${msg?'14px':'20px'}">確定預約 <strong>${date} ${start}</strong>？</div>
+        ${msg?`<div style="font-size:12px;color:var(--t3);line-height:1.7;white-space:pre-wrap;margin-bottom:20px;padding:12px 14px;background:var(--s1);border-radius:10px;border-left:3px solid var(--ac)">${msg}</div>`:''}
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+          <button id="bk-cancel" class="btn btn-g">取消</button>
+          <button id="bk-confirm" class="btn btn-p">確認預約</button>
+        </div>
+      </div>`;
+      document.body.appendChild(overlay);
+      overlay.querySelector('#bk-confirm').onclick=()=>{document.body.removeChild(overlay);resolve(true);};
+      overlay.querySelector('#bk-cancel').onclick=()=>{document.body.removeChild(overlay);resolve(false);};
+    });
+    if(!confirmed)return;
+    try{L.show();
+      const r=await api.post('/api/user/book',{eventId:ev.id,date,slotStart:start,slotEnd:end});
+      const action=r&&r.old_uid?'接手':'預約';
+      Toast.show(action==='接手'?'接手成功':'時段預約成功','s');
+      User.writeLog(action,date,start,end).catch(()=>{});
+      await DD.render(date,DD.sched);await MC.loadAll();await MC.refreshQ();MC.buildGrid();
+    }catch(e){Toast.show(e.message,'e');}finally{L.hide();}
   },
-  async cancel(date,start){
-    const ev=S.event;try{L.show();await api.del('/api/user/book',{eventId:ev.id,date,slotStart:start});Toast.show('已取消該時段','i');await DD.render(date,DD.sched);await MC.loadAll();await MC.refreshQ();MC.buildGrid();}catch(e){Toast.show(e.message,'e');}finally{L.hide();}
+  async findSub(date,start){
+    const ev=S.event;
+    const sched=DD.sched;  // capture before async
+    if(!confirm('確定標記為「尋找替代人」？\n其他人可接手此時段，若無人接手則視為已使用。'))return;
+    try{L.show();
+      await api.post('/api/user/find-sub',{eventId:ev.id,date,slotStart:start});
+      Toast.show('已標記為尋找替代人','s');
+      User.writeLog('尋找替代人',date,start,'').catch(()=>{});
+      if(sched) await DD.render(date,sched);
+      await MC.loadAll();await MC.refreshQ();MC.buildGrid();
+    }catch(e){Toast.show(e.message,'e');}finally{L.hide();}
+  },
+  async cancelFindSub(date,start){
+    const ev=S.event;
+    const sched=DD.sched;
+    if(!confirm('確定取消尋找替代人？將恢復為已預約狀態。'))return;
+    try{L.show();
+      await api.post('/api/user/cancel-find-sub',{eventId:ev.id,date,slotStart:start});
+      Toast.show('已恢復為已預約狀態','s');
+      User.writeLog('取消尋找替代人',date,start,'').catch(()=>{});
+      if(sched) await DD.render(date,sched);
+      await MC.loadAll();await MC.refreshQ();MC.buildGrid();
+    }catch(e){Toast.show(e.message,'e');}finally{L.hide();}
   },
 };
 
