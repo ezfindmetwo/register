@@ -138,11 +138,23 @@ a{color:inherit;text-decoration:none}
 .stat-lbl{color:var(--t3);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
 .stat-val{font-size:20px;font-weight:800;color:var(--t1);margin-top:3px}
 .stat-val.open{color:var(--ok)}
-.tabbar{display:inline-flex;background:var(--s0);border:1px solid var(--bd);border-radius:9px;padding:3px;gap:2px;margin-bottom:15px}
-.tabbtn{padding:7px 17px;border-radius:7px;border:none;cursor:pointer;font-size:12px;font-weight:700;background:transparent;color:var(--t3);transition:all .18s;display:flex;align-items:center;gap:5px;white-space:nowrap}
+.tabbar{display:flex;flex-wrap:wrap;background:var(--s0);border:1px solid var(--bd);border-radius:9px;padding:3px;gap:2px;margin-bottom:15px;max-width:100%}
+.tabbtn{padding:7px 14px;border-radius:7px;border:none;cursor:pointer;font-size:12px;font-weight:700;background:transparent;color:var(--t3);transition:all .18s;display:flex;align-items:center;gap:5px;white-space:nowrap;flex-shrink:0}
 .tabbtn.on{background:var(--ac);color:#fff}
 .tabbtn:not(.on):hover{background:var(--s1);color:var(--t1)}
 .panel{background:var(--s0);border:1px solid var(--bd);border-radius:14px;padding:24px;max-width:760px;box-shadow:var(--sh)}
+@media(max-width:640px){
+  .panel{padding:14px}
+  .fg2{grid-template-columns:1fr}
+  .ev-card{flex-wrap:wrap}
+  .ev-card-acts{width:100%;justify-content:flex-end;margin-top:6px}
+  .detail-hd{flex-wrap:wrap;gap:6px}
+  .bk-slot-time{min-width:80px;font-size:11px}
+  .bk-slot-who{font-size:11px}
+  .bk-batch-bar{font-size:12px}
+  #va .topbar{padding:10px 12px}
+  .topbar .tb-right{gap:6px}
+}
 .panel h3{color:var(--t1);font-size:15px;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:7px}
 .day-picker{display:flex;gap:5px;flex-wrap:wrap;margin-top:4px}
 .dpk{width:37px;height:37px;border-radius:7px;border:1px solid var(--bd);background:var(--s1);color:var(--t3);font-size:13px;font-weight:700;cursor:pointer;transition:all .18s}
@@ -242,7 +254,7 @@ a{color:inherit;text-decoration:none}
 .mmc-num.today.mybook{background:var(--ac);color:#fff;border-color:var(--ac)}
 .mmc-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
 .mmc-dot.avail{background:#22c55e}
-.mmc-dot.partial{background:#f97316}
+.mmc-dot.partial{background:#eab308}
 .mmc-dot.full{background:#ef4444}
 /* Calendar day tooltip */
 .mmc-day[data-tip]{position:relative;cursor:pointer}
@@ -567,6 +579,15 @@ a{color:inherit;text-decoration:none}
             <svg class="ico" style="font-size:13px"><use href="#ic-back"/></svg> 回上一頁
           </button>
           <span class="detail-hd-ttl" id="bk-detail-ttl"></span>
+          <button class="btn btn-p btn-sm" style="margin-left:auto" onclick="Admin.toggleSelectAll()">
+            <span id="btn-sel-all-txt">全選</span>
+          </button>
+        </div>
+        <!-- Batch delete bar (hidden until selection) -->
+        <div class="bk-batch-bar" id="bk-batch-bar" style="display:none">
+          <span class="bk-batch-count" id="bk-batch-count">已選 0 筆</span>
+          <button class="btn btn-sm" style="background:rgba(255,255,255,.25);color:#fff" onclick="Admin.clearSelection()">取消選取</button>
+          <button class="btn btn-sm" style="background:#fff;color:#dc2626;font-weight:700" onclick="Admin.batchDelete()">🗑 批次刪除</button>
         </div>
         <div id="bk-list"><div class="nodata">載入中…</div></div>
       </div>
@@ -609,8 +630,8 @@ a{color:inherit;text-decoration:none}
         </div>
         <hr class="divider" style="margin:0">
         <div>
-          <div class="fl" style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:8px">匯出預約資料</div>
-          <p style="font-size:12px;color:var(--t3);margin-bottom:10px">匯出為 CSV，可選擇特定活動或全部。</p>
+          <div class="fl" style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:8px">預約資料匯出／匯入</div>
+          <p style="font-size:12px;color:var(--t3);margin-bottom:10px">匯出為 CSV，可選擇特定活動或全部。匯入格式須與匯出相同，已存在的記錄自動跳過。</p>
           <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
             <select id="exp-ev-sel" class="fi" style="width:auto;flex:1;min-width:160px">
               <option value="">全部活動（非封存）</option>
@@ -622,10 +643,14 @@ a{color:inherit;text-decoration:none}
               📊 同步到 Google Sheet
             </button>
           </div>
-          <div id="gsheet-exp-res" class="hidden" style="font-size:12px;margin-top:6px"></div>
+          <div id="gsheet-exp-res" class="hidden" style="font-size:12px;margin-bottom:8px"></div>
+          <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+            <input type="file" id="imp-file" accept=".csv" style="font-size:12px;color:var(--t2)">
+            <button class="btn btn-p btn-sm" onclick="Admin.importCSV()"><svg class="ico"><use href="#ic-check"/></svg> 開始匯入</button>
+          </div>
+          <div id="imp-res" class="hidden" style="margin-top:10px"></div>
         </div>
-
-        <hr class="divider" style="margin:0">
+                <hr class="divider" style="margin:0">
 
         <!-- Google Sheet Settings -->
         <div>
@@ -681,36 +706,22 @@ a{color:inherit;text-decoration:none}
           <div id="imp-sys-res" class="hidden" style="font-size:12px"></div>
         </div>
         <hr class="divider" style="margin:0">
+
+
+        <hr class="divider" style="margin:0">
+
+        <!-- Export / Import event settings -->
         <div>
-          <div class="fl" style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:8px">匯入預約資料</div>
-          <p style="font-size:12px;color:var(--t3);margin-bottom:10px">格式須與匯出相同。已存在的記錄自動跳過。</p>
-          <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
-            <input type="file" id="imp-file" accept=".csv" style="font-size:12px;color:var(--t2)">
-            <button class="btn btn-p btn-sm" onclick="Admin.importCSV()"><svg class="ico"><use href="#ic-check"/></svg> 開始匯入</button>
+          <div class="fl" style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:8px">活動設定匯出／匯入</div>
+          <p style="font-size:12px;color:var(--t3);margin-bottom:10px">將活動名稱、日期、時段、排除日期等設定匯出為 JSON，可在其他環境匯入還原。預約紀錄不受影響。</p>
+          <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+            <a href="/api/admin/export-event" class="btn btn-g btn-sm" style="text-decoration:none;display:inline-flex">
+              ↓ 下載 event_settings.json
+            </a>
           </div>
-          <div id="imp-res" class="hidden" style="margin-top:10px"></div>
-        </div>
-
-        <hr class="divider" style="margin:0">
-
-        <!-- Export event settings -->
-        <div>
-          <div class="fl" style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:8px">匯出活動設定</div>
-          <p style="font-size:12px;color:var(--t3);margin-bottom:10px">將活動名稱、日期、時段、排除日期等設定匯出為 JSON 檔案，可在其他環境匯入還原。</p>
-          <a href="/api/admin/export-event" class="btn btn-g btn-sm" style="text-decoration:none;display:inline-flex">
-            ↓ 下載 event_settings.json
-          </a>
-        </div>
-
-        <hr class="divider" style="margin:0">
-
-        <!-- Import event settings -->
-        <div>
-          <div class="fl" style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:8px">匯入活動設定</div>
-          <p style="font-size:12px;color:var(--t3);margin-bottom:10px">上傳活動設定 JSON，將覆蓋現有設定（預約紀錄不受影響）。</p>
           <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
             <input type="file" id="imp-ev-file" accept=".json" style="font-size:12px;color:var(--t2)">
-            <button class="btn btn-p btn-sm" onclick="Admin.importEvent()"><svg class="ico"><use href="#ic-check"/></svg> 開始匯入</button>
+            <button class="btn btn-p btn-sm" onclick="Admin.importEvent()"><svg class="ico"><use href="#ic-check"/></svg> 匯入設定</button>
           </div>
           <div id="imp-ev-res" class="hidden" style="margin-top:10px"></div>
         </div>
@@ -788,7 +799,7 @@ a{color:inherit;text-decoration:none}
   <div class="dd-top">
     <div style="display:flex;align-items:center;gap:11px">
       <button class="btn btn-g btn-sm" style="gap:6px;font-weight:700" onclick="App.show('vmc');MC.refreshQ()">
-        <svg class="ico" style="font-size:15px"><use href="#ic-back"/></svg> ← 返回日曆
+        <svg class="ico" style="font-size:15px"><use href="#ic-back"/></svg> ← 回上一頁
       </button>
       <div>
         <div class="dd-date-ttl" id="dd-ttl"></div>
@@ -1166,9 +1177,11 @@ const Admin={
   },
 
   async openBkDetail(eid,name){
+    Admin._bkEid=eid;Admin._bkEvName=name;
     document.getElementById('bk-ev-list-view').style.display='none';
     document.getElementById('bk-detail-view').style.display='';
     document.getElementById('bk-detail-ttl').textContent=name;
+    Admin.clearSelection();
     const list=document.getElementById('bk-list');
     list.innerHTML='<div class="nodata">載入中…</div>';
     try{
@@ -1176,20 +1189,32 @@ const Admin={
       if(!data.length){list.innerHTML='<div class="nodata">尚無預約紀錄</div>';return;}
       const MON_TW=['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
       const byM={};
-      data.forEach(b=>{const m=String(b.booking_date).substring(0,7);if(!byM[m])byM[m]=[];byM[m].push(b);});
+      data.forEach(b=>{
+        const bd=String(b.booking_date).replace(/\//g,'-');
+        const parts=bd.split('-');
+        const m=parts[0]+'-'+(parts[1]||'').padStart(2,'0');
+        if(!byM[m])byM[m]=[];byM[m].push(b);
+      });
       list.innerHTML=Object.keys(byM).sort().map(m=>{
-        const [yr,mo]=m.split('-');
+        const [yr,mo]=m.split('-');if(!yr||!mo)return '';
         const rows=byM[m].sort((a,b)=>(a.booking_date+a.slot_start_time).localeCompare(b.booking_date+b.slot_start_time)).map(s=>{
           const name2=s.chinese_name||s.display_name||s.line_user_id||'—';
           const time=`${s.booking_date.substring(0,10)} ${String(s.slot_start_time).substring(0,5)}`;
-          return `<div class="bk-slot-row">
+          return `<div class="bk-slot-row" data-bid="${s.id}">
+            <input type="checkbox" class="bk-check bk-row-chk" value="${s.id}" onchange="Admin.onCheckChange()">
             <span class="bk-slot-time">${time}</span>
             <span class="bk-slot-who">${ico('ic-user')} ${name2}</span>
             <button class="btn btn-r btn-xs bk-slot-del" onclick="Admin.deleteBk(${s.id},${eid},'${name.replace(/'/g,'\'')}')" title="刪除此預約">✕</button>
           </div>`;
         }).join('');
-        return `<div class="bk-month"><div class="bk-month-icon"></div>${yr}年${MON_TW[+mo-1]}（${byM[m].length} 筆）</div>
-          <div class="bk-item" style="padding:8px 14px;margin-bottom:8px">${rows}</div>`;
+        const monthId='bkm-'+m.replace(/-/g,'');
+        return `<div class="bk-month">
+          <div class="bk-month-hd">
+            <input type="checkbox" class="bk-check" id="${monthId}-chk" onchange="Admin.toggleMonth('${monthId}',this.checked)" title="全選本月">
+            <div class="bk-month-icon"></div>${+yr}年${MON_TW[+mo-1]}（${byM[m].length} 筆）
+          </div>
+        </div>
+        <div class="bk-item" id="${monthId}" style="padding:8px 14px;margin-bottom:8px">${rows}</div>`;
       }).join('');
     }catch(e){list.innerHTML=`<div class="nodata">載入失敗：${e.message}</div>`;}
   },
@@ -1197,6 +1222,71 @@ const Admin={
   closeBkDetail(reload=true){
     const lv=document.getElementById('bk-ev-list-view');if(lv)lv.style.display='';
     const dv=document.getElementById('bk-detail-view');if(dv)dv.style.display='none';
+    Admin._bkEid=null;Admin._bkEvName=null;
+  },
+
+  onCheckChange(){
+    const checked=document.querySelectorAll('.bk-row-chk:checked');
+    const bar=document.getElementById('bk-batch-bar');
+    const cnt=document.getElementById('bk-batch-count');
+    if(checked.length>0){bar.style.display='flex';cnt.textContent='已選 '+checked.length+' 筆';}
+    else{bar.style.display='none';}
+    // Update month checkboxes
+    document.querySelectorAll('[id$="-chk"]').forEach(mchk=>{
+      const monthId=mchk.id.replace('-chk','');
+      const monthEl=document.getElementById(monthId);
+      if(!monthEl)return;
+      const all=monthEl.querySelectorAll('.bk-row-chk');
+      const allChecked=monthEl.querySelectorAll('.bk-row-chk:checked');
+      mchk.indeterminate=allChecked.length>0&&allChecked.length<all.length;
+      mchk.checked=allChecked.length===all.length&&all.length>0;
+    });
+    // Update select-all button text
+    const allChk=document.querySelectorAll('.bk-row-chk');
+    const allChecked=document.querySelectorAll('.bk-row-chk:checked');
+    const txt=document.getElementById('btn-sel-all-txt');
+    if(txt)txt.textContent=allChecked.length===allChk.length&&allChk.length>0?'全不選':'全選';
+  },
+
+  toggleMonth(monthId, checked){
+    const monthEl=document.getElementById(monthId);
+    if(!monthEl)return;
+    monthEl.querySelectorAll('.bk-row-chk').forEach(c=>c.checked=checked);
+    Admin.onCheckChange();
+  },
+
+  toggleSelectAll(){
+    const all=document.querySelectorAll('.bk-row-chk');
+    const allChecked=document.querySelectorAll('.bk-row-chk:checked');
+    const shouldCheck=allChecked.length<all.length;
+    all.forEach(c=>c.checked=shouldCheck);
+    Admin.onCheckChange();
+  },
+
+  clearSelection(){
+    document.querySelectorAll('.bk-row-chk').forEach(c=>c.checked=false);
+    document.querySelectorAll('[id$="-chk"]').forEach(c=>{c.checked=false;c.indeterminate=false;});
+    document.getElementById('bk-batch-bar').style.display='none';
+    const txt=document.getElementById('btn-sel-all-txt');if(txt)txt.textContent='全選';
+  },
+
+  async batchDelete(){
+    const checked=[...document.querySelectorAll('.bk-row-chk:checked')];
+    if(!checked.length)return;
+    if(!confirm(`確定刪除選取的 ${checked.length} 筆預約？此操作無法復原。`))return;
+    const ids=checked.map(c=>+c.value);
+    try{L.show();
+      await Promise.all(ids.map(id=>api.del('/api/admin/booking/'+id)));
+      Toast.show(`已刪除 ${ids.length} 筆預約`,'i');
+      const eid=Admin._bkEid; const evName=Admin._bkEvName||'';
+      if(eid)await Admin.openBkDetail(eid,evName);
+    }catch(e){Toast.show(e.message,'e');}finally{L.hide();}
+  },
+
+  closeBkDetail(reload=true){
+    const lv=document.getElementById('bk-ev-list-view');if(lv)lv.style.display='';
+    const dv=document.getElementById('bk-detail-view');if(dv)dv.style.display='none';
+    Admin._bkEid=null;Admin._bkEvName=null;
   },
 
 
@@ -1452,7 +1542,7 @@ const User={
   async enterCal(){
     try{L.show();const ev=await api.get('/api/user/event');if(!ev){Toast.show('目前沒有開放的活動','e');App.show('vh');return;}
     S.event=ev;document.getElementById('mc-ev-name').textContent=ev.name;document.getElementById('mc-ev-rng').textContent=`${(ev.start_date||'').substring(0,10)} ～ ${(ev.end_date||'').substring(0,10)}`;const _mce=document.getElementById('mc-email');
-      const _av=S.picUrl?`<img src="${S.picUrl}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;border:2px solid var(--bd);flex-shrink:0">`:`<div style="width:32px;height:32px;border-radius:50%;background:var(--ac-bg);color:var(--ac);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">👤</div>`;
+      const _av=S.picUrl?`<img src="${S.picUrl}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;border:2px solid var(--bd);flex-shrink:0" onerror="this.style.display='none';this.nextSibling&&(this.nextSibling.style.display='flex')">`+`<div style="width:32px;height:32px;border-radius:50%;background:var(--ac-bg);color:var(--ac);display:none;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">👤</div>`:`<div style="width:32px;height:32px;border-radius:50%;background:var(--ac-bg);color:var(--ac);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">👤</div>`;
       _mce.innerHTML=_av+`<span style="font-weight:600;color:var(--t1);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${S.dispName||''}</span>`;
       document.getElementById('mc-qmax').textContent=ev.max_slots_per_user;document.getElementById('dd-qmax').textContent=ev.max_slots_per_user;document.getElementById('dd-email').textContent=S.dispName||'';
     App.show('vmc');await MC.renderAll();}
@@ -1509,7 +1599,7 @@ const MC={
     const months=[];let cur=new Date(sD.getFullYear(),sD.getMonth(),1);const eMon=new Date(eD.getFullYear(),eD.getMonth(),1);
     while(cur<=eMon){months.push({yr:cur.getFullYear(),mo:cur.getMonth()+1});cur.setMonth(cur.getMonth()+1);}
     const body=document.getElementById('mc-body');
-    body.innerHTML=`<div class="months-outer"><div class="months-legend"><div class="mleg"><div class="mleg-dot" style="background:#22c55e"></div>尚未有人申請</div><div class="mleg"><div class="mleg-dot" style="background:#f97316"></div>已有人申請（未額滿）</div><div class="mleg"><div class="mleg-dot" style="background:#ef4444"></div>時段已額滿</div><div class="mleg"><div class="mleg-mine"></div>我有預約（藍框）</div></div><div class="months-grid" id="months-grid"></div></div>`;
+    body.innerHTML=`<div class="months-outer"><div class="months-legend"><div class="mleg"><div class="mleg-dot" style="background:#22c55e"></div>尚未有人申請</div><div class="mleg"><div class="mleg-dot" style="background:#eab308"></div>已有人申請（未額滿）</div><div class="mleg"><div class="mleg-dot" style="background:#ef4444"></div>時段已額滿</div><div class="mleg"><div class="mleg-mine"></div>我有預約（藍框）</div></div><div class="months-grid" id="months-grid"></div></div>`;
     const grid=document.getElementById('months-grid');months.forEach(({yr,mo})=>grid.appendChild(MC.buildMonth(yr,mo,evS,evE)));
   },
   buildMonth(yr,mo,evS,evE){
@@ -1572,7 +1662,7 @@ const DD={
     document.getElementById('mc-q').textContent=S.myTotal;document.getElementById('mc-q').className=S.myTotal>=max?'full':'';
     const bm={};bkData.bookings.forEach(b=>{const st=String(b.slot_start_time).substring(0,5);bm[st]={id:b.id,mine:!!b.is_mine,name:b.display_name||'',pic:b.picture_url||'',status:b.status||'booked'};});
     const dur=sched.slot_duration;
-    const today=new Date().toISOString().substring(0,10);
+    const today=new Date(Date.now()+8*3600000).toISOString().substring(0,10);  // Taiwan UTC+8
     const isPastDate=date<today;
     box.innerHTML=allSlots.map(sl=>{
       const info=bm[sl.start];
@@ -1599,7 +1689,8 @@ const DD={
           return `<div class="slot-row expired"><div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div><div class="slot-r">${expLabel}</div></div>`;
         }
         const statusLabel=info.status==='finding_sub'?`<span class="sp sp-sub">🔄 尋找替代人中</span>  <button class="btn btn-g btn-xs" onclick="DD.cancelFindSub('${date}','${sl.start}')" style="font-size:10px">取消尋找</button>`:`<span class="sp sp-m">${ico('ic-check')} 已預約</span> <button class="btn btn-g btn-xs" onclick="DD.findSub('${date}','${sl.start}')" title="尋找替代人">🔄 尋找替代人</button>`;
-        return `<div class="slot-row"><div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div><div class="slot-r">${statusLabel}</div></div>`;
+        const myAv=S.picUrl?`<img src="${S.picUrl}" class="booker-avatar" alt="" onerror="this.style.display='none'">`:`<div style="width:28px;height:28px;border-radius:50%;background:var(--ac-bg);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--ac);flex-shrink:0">👤</div>`;
+        return `<div class="slot-row"><div><div class="slot-t">${sl.start} – ${sl.end}</div><div class="slot-d">${dur} 分鐘</div></div><div class="slot-r">${statusLabel}<div class="booker-info">${myAv}<span class="booker-name">${S.dispName||''}</span></div></div></div>`;
       }
       // Others' booked slot
       const av=info.pic?`<img src="${info.pic}" class="booker-avatar" alt="">`:

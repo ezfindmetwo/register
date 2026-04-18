@@ -11,8 +11,14 @@ load_dotenv()
 
 app = Flask(__name__, static_folder='public', static_url_path='')
 app.secret_key = os.getenv('SECRET_KEY', 'sched-secret-change-me')
-app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax',
-                  PERMANENT_SESSION_LIFETIME=timedelta(hours=8))
+IS_HTTPS = os.getenv('FLASK_ENV', 'development') == 'production'
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SECURE=IS_HTTPS,      # HTTPS only in production
+    SESSION_COOKIE_NAME='sched_session', # unique cookie name
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=8)
+)
 
 DB_PATH        = os.getenv('DB_PATH',        'scheduling.db')
 ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD', 'admin123')
@@ -179,7 +185,7 @@ def get_admin_password():
 def row_to_dict(r):   return dict(r) if r else None
 def rows_to_list(rs): return [dict(r) for r in rs]
 def generate_code():  return ''.join(random.choices('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', k=6))
-def now_str():        return datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+def now_str():        return datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')
 def expires_at(m=10): return (datetime.now(timezone.utc)+timedelta(minutes=m)).strftime('%Y-%m-%d %H:%M:%S')
 def ok(**kw):         return jsonify({'success': True, **kw})
 def err(msg, s=400):  return jsonify({'error': msg}), s
@@ -678,7 +684,7 @@ def export_bookings():
     from flask import Response
     eid = request.args.get('eventId', type=int)
     with get_db() as c:
-        q = ('SELECT u.chinese_name,u.display_name,u.email,u.line_user_id,'
+        q = ('SELECT u.chinese_name,u.display_name,u.email,u.line_user_id,u.picture_url,'
              'b.booking_date,b.slot_start_time,b.slot_end_time,'
              'ev.name as event_name '
              'FROM slot_bookings b '
@@ -691,10 +697,10 @@ def export_bookings():
     buf = io.StringIO()
     buf.write('﻿')  # BOM for Excel UTF-8
     w = csv.writer(buf)
-    w.writerow(['活動名稱','中文姓名','LINE顯示名稱','Email','LINE User ID','預約日期','開始時間','結束時間'])
+    w.writerow(['活動名稱','中文姓名','LINE顯示名稱','Email','LINE User ID','頭像網址','預約日期','開始時間','結束時間'])
     for r in rows:
         w.writerow([r['event_name'], r['chinese_name'] or '', r['display_name'] or '',
-                    r['email'] or '', r['line_user_id'] or '',
+                    r['email'] or '', r['line_user_id'] or '', r['picture_url'] or '',
                     r['booking_date'], str(r['slot_start_time'])[:5], str(r['slot_end_time'])[:5]])
     buf.seek(0)
     return Response(buf.getvalue(), mimetype='text/csv; charset=utf-8-sig',
@@ -715,10 +721,16 @@ def import_bookings():
         eid = ev['id']
         for i, row in enumerate(reader, 2):
             try:
-                name  = (row.get('中文姓名') or '').strip()
+                display_name = (row.get('LINE顯示名稱') or '').strip()
+                picture_url  = (row.get('頭像網址') or '').strip()
+                name  = (row.get('中文姓名') or display_name or '').strip()
                 email = (row.get('Email') or '').strip()
                 line_uid = (row.get('LINE User ID') or '').strip()
-                date  = (row.get('預約日期') or '').strip()
+                date  = (row.get('預約日期') or '').strip().replace('/','-')
+                # Normalize date: 2026-4-24 → 2026-04-24
+                if date:
+                    parts=date.split('-')
+                    if len(parts)==3: date=f'{parts[0]}-{int(parts[1]):02d}-{int(parts[2]):02d}'
                 ts    = (row.get('開始時間') or '').strip()
                 te    = (row.get('結束時間') or '').strip()
                 if not date or not ts: skipped += 1; continue
@@ -730,11 +742,13 @@ def import_bookings():
                     user = c.execute('SELECT id FROM users WHERE email=?', (email,)).fetchone()
                 if not user:
                     uid = c.execute(
-                        'INSERT INTO users(line_user_id,email,chinese_name,display_name) VALUES(?,?,?,?)',
-                        (line_uid or None, email or None, name or None, name or None)).lastrowid
+                        'INSERT INTO users(line_user_id,email,chinese_name,display_name,picture_url) VALUES(?,?,?,?,?)',
+                        (line_uid or None, email or None, name or None, display_name or name or None, picture_url or None)).lastrowid
                 else:
                     uid = user['id']
                     if name: c.execute('UPDATE users SET chinese_name=? WHERE id=? AND chinese_name IS NULL', (name, uid))
+                    if display_name: c.execute('UPDATE users SET display_name=? WHERE id=?', (display_name, uid))
+                    if picture_url: c.execute('UPDATE users SET picture_url=? WHERE id=?', (picture_url, uid))
                 # Check if slot already exists
                 exists = c.execute(
                     'SELECT id FROM slot_bookings WHERE event_id=? AND user_id=? AND booking_date=? AND slot_start_time=?',
@@ -746,8 +760,8 @@ def import_bookings():
                     (eid, date, ts)).fetchone()
                 if conflict: skipped += 1; errors.append(f'第{i}行：{date} {ts} 時段已被他人預約'); continue
                 c.execute(
-                    'INSERT INTO slot_bookings(event_id,user_id,booking_date,slot_start_time,slot_end_time) VALUES(?,?,?,?,?)',
-                    (eid, uid, date, ts, te))
+                    "INSERT INTO slot_bookings(event_id,user_id,booking_date,slot_start_time,slot_end_time,status) VALUES(?,?,?,?,?,?)",
+                    (eid, uid, date, ts, te, 'booked'))
                 imported += 1
             except Exception as e:
                 errors.append(f'第{i}行錯誤：{e}')
@@ -992,8 +1006,14 @@ load_dotenv()
 
 app = Flask(__name__, static_folder='public', static_url_path='')
 app.secret_key = os.getenv('SECRET_KEY', 'sched-secret-change-me')
-app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax',
-                  PERMANENT_SESSION_LIFETIME=timedelta(hours=8))
+IS_HTTPS = os.getenv('FLASK_ENV', 'development') == 'production'
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SECURE=IS_HTTPS,      # HTTPS only in production
+    SESSION_COOKIE_NAME='sched_session', # unique cookie name
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=8)
+)
 
 DB_PATH        = os.getenv('DB_PATH',        'scheduling.db')
 ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD', 'admin123')
@@ -1160,7 +1180,7 @@ def get_admin_password():
 def row_to_dict(r):   return dict(r) if r else None
 def rows_to_list(rs): return [dict(r) for r in rs]
 def generate_code():  return ''.join(random.choices('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', k=6))
-def now_str():        return datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+def now_str():        return datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')
 def expires_at(m=10): return (datetime.now(timezone.utc)+timedelta(minutes=m)).strftime('%Y-%m-%d %H:%M:%S')
 def ok(**kw):         return jsonify({'success': True, **kw})
 def err(msg, s=400):  return jsonify({'error': msg}), s
@@ -1659,7 +1679,7 @@ def export_bookings():
     from flask import Response
     eid = request.args.get('eventId', type=int)
     with get_db() as c:
-        q = ('SELECT u.chinese_name,u.display_name,u.email,u.line_user_id,'
+        q = ('SELECT u.chinese_name,u.display_name,u.email,u.line_user_id,u.picture_url,'
              'b.booking_date,b.slot_start_time,b.slot_end_time,'
              'ev.name as event_name '
              'FROM slot_bookings b '
@@ -1672,10 +1692,10 @@ def export_bookings():
     buf = io.StringIO()
     buf.write('﻿')  # BOM for Excel UTF-8
     w = csv.writer(buf)
-    w.writerow(['活動名稱','中文姓名','LINE顯示名稱','Email','LINE User ID','預約日期','開始時間','結束時間'])
+    w.writerow(['活動名稱','中文姓名','LINE顯示名稱','Email','LINE User ID','頭像網址','預約日期','開始時間','結束時間'])
     for r in rows:
         w.writerow([r['event_name'], r['chinese_name'] or '', r['display_name'] or '',
-                    r['email'] or '', r['line_user_id'] or '',
+                    r['email'] or '', r['line_user_id'] or '', r['picture_url'] or '',
                     r['booking_date'], str(r['slot_start_time'])[:5], str(r['slot_end_time'])[:5]])
     buf.seek(0)
     return Response(buf.getvalue(), mimetype='text/csv; charset=utf-8-sig',
@@ -1696,10 +1716,16 @@ def import_bookings():
         eid = ev['id']
         for i, row in enumerate(reader, 2):
             try:
-                name  = (row.get('中文姓名') or '').strip()
+                display_name = (row.get('LINE顯示名稱') or '').strip()
+                picture_url  = (row.get('頭像網址') or '').strip()
+                name  = (row.get('中文姓名') or display_name or '').strip()
                 email = (row.get('Email') or '').strip()
                 line_uid = (row.get('LINE User ID') or '').strip()
-                date  = (row.get('預約日期') or '').strip()
+                date  = (row.get('預約日期') or '').strip().replace('/','-')
+                # Normalize date: 2026-4-24 → 2026-04-24
+                if date:
+                    parts=date.split('-')
+                    if len(parts)==3: date=f'{parts[0]}-{int(parts[1]):02d}-{int(parts[2]):02d}'
                 ts    = (row.get('開始時間') or '').strip()
                 te    = (row.get('結束時間') or '').strip()
                 if not date or not ts: skipped += 1; continue
@@ -1711,11 +1737,13 @@ def import_bookings():
                     user = c.execute('SELECT id FROM users WHERE email=?', (email,)).fetchone()
                 if not user:
                     uid = c.execute(
-                        'INSERT INTO users(line_user_id,email,chinese_name,display_name) VALUES(?,?,?,?)',
-                        (line_uid or None, email or None, name or None, name or None)).lastrowid
+                        'INSERT INTO users(line_user_id,email,chinese_name,display_name,picture_url) VALUES(?,?,?,?,?)',
+                        (line_uid or None, email or None, name or None, display_name or name or None, picture_url or None)).lastrowid
                 else:
                     uid = user['id']
                     if name: c.execute('UPDATE users SET chinese_name=? WHERE id=? AND chinese_name IS NULL', (name, uid))
+                    if display_name: c.execute('UPDATE users SET display_name=? WHERE id=?', (display_name, uid))
+                    if picture_url: c.execute('UPDATE users SET picture_url=? WHERE id=?', (picture_url, uid))
                 # Check if slot already exists
                 exists = c.execute(
                     'SELECT id FROM slot_bookings WHERE event_id=? AND user_id=? AND booking_date=? AND slot_start_time=?',
@@ -1727,8 +1755,8 @@ def import_bookings():
                     (eid, date, ts)).fetchone()
                 if conflict: skipped += 1; errors.append(f'第{i}行：{date} {ts} 時段已被他人預約'); continue
                 c.execute(
-                    'INSERT INTO slot_bookings(event_id,user_id,booking_date,slot_start_time,slot_end_time) VALUES(?,?,?,?,?)',
-                    (eid, uid, date, ts, te))
+                    "INSERT INTO slot_bookings(event_id,user_id,booking_date,slot_start_time,slot_end_time,status) VALUES(?,?,?,?,?,?)",
+                    (eid, uid, date, ts, te, 'booked'))
                 imported += 1
             except Exception as e:
                 errors.append(f'第{i}行錯誤：{e}')
