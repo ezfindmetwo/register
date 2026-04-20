@@ -4,3 +4,4 @@ requests>=2.31.0
 gunicorn>=21.2.0
 pytest>=8.0.0
 bcrypt
+cryptography

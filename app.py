@@ -2,6 +2,8 @@
 import os, sqlite3, random, smtplib, ssl, functools, requests as _requests
 from datetime import datetime, timedelta, timezone
 import bcrypt as _bcrypt
+from cryptography.fernet import Fernet as _Fernet
+import base64 as _b64, hashlib as _hashlib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.header import Header
@@ -150,6 +152,12 @@ def init_db():
             ip         TEXT,
             created_at TEXT DEFAULT (datetime('now'))
         );
+        CREATE TABLE IF NOT EXISTS line_followers (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            line_user_id TEXT UNIQUE NOT NULL,
+            followed_at  TEXT DEFAULT (datetime('now')),
+            unfollowed_at TEXT
+        );
         """)
     # Migration: add columns (idempotent)
     with get_db() as c:
@@ -159,6 +167,9 @@ def init_db():
             "ALTER TABLE email_settings ADD COLUMN api_key TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE events ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE events ADD COLUMN booking_message TEXT DEFAULT ''",
+            "ALTER TABLE admin_settings ADD COLUMN line_channel_token TEXT DEFAULT ''",
+            "ALTER TABLE admin_settings ADD COLUMN line_channel_secret TEXT DEFAULT ''",
+            "ALTER TABLE admin_settings ADD COLUMN line_basic_id TEXT DEFAULT ''",
 
             "ALTER TABLE admin_settings ADD COLUMN gsheet_id TEXT DEFAULT ''",
             "ALTER TABLE admin_settings ADD COLUMN gsheet_client TEXT DEFAULT ''",
@@ -244,6 +255,23 @@ def _is_pwd_reused(new_pwd, history):
         if _verify_pwd(new_pwd, h):
             return True
     return False
+
+# ── Settings encryption (Fernet / AES-128) ───────────────────────────────────
+def _get_fernet():
+    raw = app.secret_key if isinstance(app.secret_key, bytes) else app.secret_key.encode()
+    key = _b64.urlsafe_b64encode(_hashlib.sha256(raw).digest())
+    return _Fernet(key)
+
+def _encrypt(value):
+    if not value: return value
+    return _get_fernet().encrypt(value.encode()).decode()
+
+def _decrypt(value):
+    if not value: return value
+    try:
+        return _get_fernet().decrypt(value.encode()).decode()
+    except Exception:
+        return value  # plain text fallback (migration)
 
 # ── Rate limiting for login ───────────────────────────────────────────────────
 _LOGIN_WINDOW = 300   # 5 minutes
@@ -942,9 +970,85 @@ def import_event():
 @admin_required
 def get_admin_settings():
     with get_db() as c:
-        row = c.execute('SELECT auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab FROM admin_settings WHERE id=1').fetchone()
-    if not row: return ok(auto_logout=0, gsheet_id='', gsheet_client='', gsheet_tab='', log_sheet_tab='')
-    return ok(auto_logout=row['auto_logout'], gsheet_id=row['gsheet_id'] or '', gsheet_client=row['gsheet_client'] or '', gsheet_tab=row['gsheet_tab'] or '', log_sheet_tab=row['log_sheet_tab'] or '')
+        row = c.execute('SELECT auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab,line_channel_token,line_channel_secret,line_basic_id FROM admin_settings WHERE id=1').fetchone()
+    if not row: return ok(auto_logout=0, gsheet_id='', gsheet_client='', gsheet_tab='', log_sheet_tab='', line_channel_token='', line_channel_secret='', line_basic_id='')
+    return ok(auto_logout=row['auto_logout'],
+              gsheet_id=_decrypt(row['gsheet_id'] or ''),
+              gsheet_client=_decrypt(row['gsheet_client'] or ''),
+              gsheet_tab=_decrypt(row['gsheet_tab'] or ''),
+              log_sheet_tab=_decrypt(row['log_sheet_tab'] or ''),
+              line_channel_token=_decrypt(row['line_channel_token'] or ''),
+              line_basic_id=_decrypt(row['line_basic_id'] or ''))
+
+@app.route('/api/line/webhook', methods=['GET','POST'])
+def line_webhook():
+    if request.method == 'GET': return jsonify({'status': 'ok'})
+    """Receive LINE webhook events (follow/unfollow)."""
+    import hmac, hashlib, base64, json
+    body = request.get_data()
+    # Verify signature using LINE Channel Secret
+    # Use DB secret if available, fallback to env var
+    try:
+        with get_db() as _wc:
+            _ws = _wc.execute('SELECT line_channel_secret FROM admin_settings WHERE id=1').fetchone()
+            channel_secret = _decrypt(_ws['line_channel_secret'] or '') if _ws else ''
+        if not channel_secret:
+            channel_secret = LINE_CHANNEL_SECRET
+    except Exception:
+        channel_secret = LINE_CHANNEL_SECRET
+    if channel_secret:
+        sig = request.headers.get('X-Line-Signature', '')
+        digest = hmac.new(channel_secret.encode(), body, hashlib.sha256).digest()
+        expected = base64.b64encode(digest).decode()
+        if sig != expected:
+            return jsonify({'error': 'Invalid signature'}), 403
+    try:
+        data = json.loads(body)
+        events = data.get('events', [])
+        with get_db() as c:
+            for ev in events:
+                uid = (ev.get('source') or {}).get('userId')
+                if not uid:
+                    continue
+                ev_type = ev.get('type')
+                if ev_type == 'follow':
+                    c.execute(
+                        'INSERT OR IGNORE INTO line_followers(line_user_id) VALUES(?)', (uid,))
+                    # Clear unfollowed_at if re-following
+                    c.execute(
+                        'UPDATE line_followers SET unfollowed_at=NULL WHERE line_user_id=?', (uid,))
+                elif ev_type == 'unfollow':
+                    c.execute(
+                        'UPDATE line_followers SET unfollowed_at=? WHERE line_user_id=?',
+                        (now_str(), uid))
+    except Exception as e:
+        print('Webhook error:', e)
+    return jsonify({'status': 'ok'})
+
+@app.post('/api/admin/test-line-token')
+@admin_required
+def test_line_token():
+    d = request.json or {}
+    token = (d.get('token') or '').strip()
+    if not token:
+        # Use stored token
+        with get_db() as c:
+            row = c.execute('SELECT line_channel_token FROM admin_settings WHERE id=1').fetchone()
+        token = _decrypt(row['line_channel_token'] or '') if row else ''
+    if not token:
+        return err('請先填入 Channel Access Token')
+    try:
+        r = _requests.get('https://api.line.me/v2/bot/info',
+            headers={'Authorization': f'Bearer {token}'}, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            return ok(name=data.get('displayName',''), followers=data.get('followersCount',0))
+        elif r.status_code == 401:
+            return err('Token 無效或已過期，請重新產生')
+        else:
+            return err(f'LINE API 回傳錯誤：{r.status_code}')
+    except Exception as e:
+        return err(f'連線失敗：{e}')
 
 @app.get('/api/admin/export-settings')
 @admin_required
@@ -952,13 +1056,15 @@ def export_settings():
     import json
     from flask import Response
     with get_db() as c:
-        row = c.execute('SELECT auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab FROM admin_settings WHERE id=1').fetchone()
+        row = c.execute('SELECT auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab,line_channel_token,line_channel_secret,line_basic_id FROM admin_settings WHERE id=1').fetchone()
     data = {
-        'auto_logout':   row['auto_logout'] if row else 0,
-        'gsheet_id':     row['gsheet_id']     if row else '',
-        'gsheet_client': row['gsheet_client'] if row else '',
-        'gsheet_tab':    row['gsheet_tab']    if row else '',
-        'log_sheet_tab': row['log_sheet_tab'] if row else '',
+        'auto_logout':        row['auto_logout']        if row else 0,
+        'gsheet_id':          row['gsheet_id']          if row else '',
+        'gsheet_client':      row['gsheet_client']      if row else '',
+        'gsheet_tab':         row['gsheet_tab']         if row else '',
+        'log_sheet_tab':      row['log_sheet_tab']      if row else '',
+        'line_channel_token': row['line_channel_token'] if row else '',
+        'line_basic_id':      row['line_basic_id']      if row else '',
         'note': '此檔案包含系統設定，請妥善保管。不含密碼。'
     }
     out = json.dumps(data, ensure_ascii=False, indent=2)
@@ -980,11 +1086,16 @@ def import_settings():
     gsheet_client= (d.get('gsheet_client') or '').strip()
     gsheet_tab   = (d.get('gsheet_tab')    or '').strip()
     log_sheet_tab= (d.get('log_sheet_tab') or '').strip()
+    line_token   = (d.get('line_channel_token') or '').strip()
+    line_secret  = (d.get('line_channel_secret') or '').strip()
+    line_basic   = (d.get('line_basic_id') or '').strip()
     with get_db() as c:
         c.execute(
-            'INSERT OR REPLACE INTO admin_settings(id,password,auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab) '
-            'VALUES(1,(SELECT password FROM admin_settings WHERE id=1),?,?,?,?,?)',
-            (al, gsheet_id, gsheet_client, gsheet_tab, log_sheet_tab))
+            'INSERT OR REPLACE INTO admin_settings(id,password,auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab,line_channel_token,line_channel_secret,line_basic_id) '
+            'VALUES(1,(SELECT password FROM admin_settings WHERE id=1),?,?,?,?,?,?,?)',
+            (al, _encrypt(gsheet_id), _encrypt(gsheet_client),
+             _encrypt(gsheet_tab), _encrypt(log_sheet_tab),
+             _encrypt(line_token), _encrypt(line_basic)))
     return ok()
 
 @app.put('/api/admin/settings')
@@ -1102,6 +1213,8 @@ def line_callback():
     return _line_result_page(ok=True, needs_name=False, display=display, pic=pic)
 from datetime import datetime, timedelta, timezone
 import bcrypt as _bcrypt
+from cryptography.fernet import Fernet as _Fernet
+import base64 as _b64, hashlib as _hashlib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.header import Header
@@ -1250,6 +1363,12 @@ def init_db():
             ip         TEXT,
             created_at TEXT DEFAULT (datetime('now'))
         );
+        CREATE TABLE IF NOT EXISTS line_followers (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            line_user_id TEXT UNIQUE NOT NULL,
+            followed_at  TEXT DEFAULT (datetime('now')),
+            unfollowed_at TEXT
+        );
         """)
     # Migration: add columns (idempotent)
     with get_db() as c:
@@ -1259,6 +1378,9 @@ def init_db():
             "ALTER TABLE email_settings ADD COLUMN api_key TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE events ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE events ADD COLUMN booking_message TEXT DEFAULT ''",
+            "ALTER TABLE admin_settings ADD COLUMN line_channel_token TEXT DEFAULT ''",
+            "ALTER TABLE admin_settings ADD COLUMN line_channel_secret TEXT DEFAULT ''",
+            "ALTER TABLE admin_settings ADD COLUMN line_basic_id TEXT DEFAULT ''",
 
             "ALTER TABLE admin_settings ADD COLUMN gsheet_id TEXT DEFAULT ''",
             "ALTER TABLE admin_settings ADD COLUMN gsheet_client TEXT DEFAULT ''",
@@ -2042,9 +2164,85 @@ def import_event():
 @admin_required
 def get_admin_settings():
     with get_db() as c:
-        row = c.execute('SELECT auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab FROM admin_settings WHERE id=1').fetchone()
-    if not row: return ok(auto_logout=0, gsheet_id='', gsheet_client='', gsheet_tab='', log_sheet_tab='')
-    return ok(auto_logout=row['auto_logout'], gsheet_id=row['gsheet_id'] or '', gsheet_client=row['gsheet_client'] or '', gsheet_tab=row['gsheet_tab'] or '', log_sheet_tab=row['log_sheet_tab'] or '')
+        row = c.execute('SELECT auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab,line_channel_token,line_channel_secret,line_basic_id FROM admin_settings WHERE id=1').fetchone()
+    if not row: return ok(auto_logout=0, gsheet_id='', gsheet_client='', gsheet_tab='', log_sheet_tab='', line_channel_token='', line_channel_secret='', line_basic_id='')
+    return ok(auto_logout=row['auto_logout'],
+              gsheet_id=_decrypt(row['gsheet_id'] or ''),
+              gsheet_client=_decrypt(row['gsheet_client'] or ''),
+              gsheet_tab=_decrypt(row['gsheet_tab'] or ''),
+              log_sheet_tab=_decrypt(row['log_sheet_tab'] or ''),
+              line_channel_token=_decrypt(row['line_channel_token'] or ''),
+              line_basic_id=_decrypt(row['line_basic_id'] or ''))
+
+@app.route('/api/line/webhook', methods=['GET','POST'])
+def line_webhook():
+    if request.method == 'GET': return jsonify({'status': 'ok'})
+    """Receive LINE webhook events (follow/unfollow)."""
+    import hmac, hashlib, base64, json
+    body = request.get_data()
+    # Verify signature using LINE Channel Secret
+    # Use DB secret if available, fallback to env var
+    try:
+        with get_db() as _wc:
+            _ws = _wc.execute('SELECT line_channel_secret FROM admin_settings WHERE id=1').fetchone()
+            channel_secret = _decrypt(_ws['line_channel_secret'] or '') if _ws else ''
+        if not channel_secret:
+            channel_secret = LINE_CHANNEL_SECRET
+    except Exception:
+        channel_secret = LINE_CHANNEL_SECRET
+    if channel_secret:
+        sig = request.headers.get('X-Line-Signature', '')
+        digest = hmac.new(channel_secret.encode(), body, hashlib.sha256).digest()
+        expected = base64.b64encode(digest).decode()
+        if sig != expected:
+            return jsonify({'error': 'Invalid signature'}), 403
+    try:
+        data = json.loads(body)
+        events = data.get('events', [])
+        with get_db() as c:
+            for ev in events:
+                uid = (ev.get('source') or {}).get('userId')
+                if not uid:
+                    continue
+                ev_type = ev.get('type')
+                if ev_type == 'follow':
+                    c.execute(
+                        'INSERT OR IGNORE INTO line_followers(line_user_id) VALUES(?)', (uid,))
+                    # Clear unfollowed_at if re-following
+                    c.execute(
+                        'UPDATE line_followers SET unfollowed_at=NULL WHERE line_user_id=?', (uid,))
+                elif ev_type == 'unfollow':
+                    c.execute(
+                        'UPDATE line_followers SET unfollowed_at=? WHERE line_user_id=?',
+                        (now_str(), uid))
+    except Exception as e:
+        print('Webhook error:', e)
+    return jsonify({'status': 'ok'})
+
+@app.post('/api/admin/test-line-token')
+@admin_required
+def test_line_token():
+    d = request.json or {}
+    token = (d.get('token') or '').strip()
+    if not token:
+        # Use stored token
+        with get_db() as c:
+            row = c.execute('SELECT line_channel_token FROM admin_settings WHERE id=1').fetchone()
+        token = _decrypt(row['line_channel_token'] or '') if row else ''
+    if not token:
+        return err('請先填入 Channel Access Token')
+    try:
+        r = _requests.get('https://api.line.me/v2/bot/info',
+            headers={'Authorization': f'Bearer {token}'}, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            return ok(name=data.get('displayName',''), followers=data.get('followersCount',0))
+        elif r.status_code == 401:
+            return err('Token 無效或已過期，請重新產生')
+        else:
+            return err(f'LINE API 回傳錯誤：{r.status_code}')
+    except Exception as e:
+        return err(f'連線失敗：{e}')
 
 @app.get('/api/admin/export-settings')
 @admin_required
@@ -2052,13 +2250,15 @@ def export_settings():
     import json
     from flask import Response
     with get_db() as c:
-        row = c.execute('SELECT auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab FROM admin_settings WHERE id=1').fetchone()
+        row = c.execute('SELECT auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab,line_channel_token,line_channel_secret,line_basic_id FROM admin_settings WHERE id=1').fetchone()
     data = {
-        'auto_logout':   row['auto_logout'] if row else 0,
-        'gsheet_id':     row['gsheet_id']     if row else '',
-        'gsheet_client': row['gsheet_client'] if row else '',
-        'gsheet_tab':    row['gsheet_tab']    if row else '',
-        'log_sheet_tab': row['log_sheet_tab'] if row else '',
+        'auto_logout':        row['auto_logout']        if row else 0,
+        'gsheet_id':          row['gsheet_id']          if row else '',
+        'gsheet_client':      row['gsheet_client']      if row else '',
+        'gsheet_tab':         row['gsheet_tab']         if row else '',
+        'log_sheet_tab':      row['log_sheet_tab']      if row else '',
+        'line_channel_token': row['line_channel_token'] if row else '',
+        'line_basic_id':      row['line_basic_id']      if row else '',
         'note': '此檔案包含系統設定，請妥善保管。不含密碼。'
     }
     out = json.dumps(data, ensure_ascii=False, indent=2)
@@ -2080,11 +2280,16 @@ def import_settings():
     gsheet_client= (d.get('gsheet_client') or '').strip()
     gsheet_tab   = (d.get('gsheet_tab')    or '').strip()
     log_sheet_tab= (d.get('log_sheet_tab') or '').strip()
+    line_token   = (d.get('line_channel_token') or '').strip()
+    line_secret  = (d.get('line_channel_secret') or '').strip()
+    line_basic   = (d.get('line_basic_id') or '').strip()
     with get_db() as c:
         c.execute(
-            'INSERT OR REPLACE INTO admin_settings(id,password,auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab) '
-            'VALUES(1,(SELECT password FROM admin_settings WHERE id=1),?,?,?,?,?)',
-            (al, gsheet_id, gsheet_client, gsheet_tab, log_sheet_tab))
+            'INSERT OR REPLACE INTO admin_settings(id,password,auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab,line_channel_token,line_channel_secret,line_basic_id) '
+            'VALUES(1,(SELECT password FROM admin_settings WHERE id=1),?,?,?,?,?,?,?)',
+            (al, _encrypt(gsheet_id), _encrypt(gsheet_client),
+             _encrypt(gsheet_tab), _encrypt(log_sheet_tab),
+             _encrypt(line_token), _encrypt(line_basic)))
     return ok()
 
 @app.put('/api/admin/settings')
@@ -2200,6 +2405,56 @@ def line_callback():
     session['user_id']   = uid
     session['user_line'] = line_uid
     session.permanent    = True
+
+    # Check LINE Official Account friend status via follower DB
+    try:
+        with get_db() as _sc:
+            _settings = _sc.execute('SELECT line_channel_token, line_basic_id FROM admin_settings WHERE id=1').fetchone()
+            _token = _decrypt(_settings['line_channel_token'] or '') if _settings else ''
+            _basic = _decrypt(_settings['line_basic_id'] or '') if _settings else ''
+            if _token:
+                # Check if user is in followers table (added via webhook)
+                _follower = _sc.execute(
+                    'SELECT id FROM line_followers WHERE line_user_id=? AND unfollowed_at IS NULL',
+                    (line_uid,)).fetchone()
+                if not _follower:
+                    session.pop('user_id', None)
+                    session.pop('user_line', None)
+                    _add_url = f'https://line.me/R/ti/p/{_basic}' if _basic else 'https://line.me'
+                    not_friend_html = (
+                        '<!DOCTYPE html><html><head><meta charset="UTF-8">'
+                        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+                        '<style>'
+                        'body{font-family:Segoe UI,sans-serif;display:flex;align-items:center;'
+                        'justify-content:center;min-height:100vh;margin:0;'
+                        'background:linear-gradient(135deg,#f0fdf4,#dcfce7)}'
+                        '.box{text-align:center;padding:40px 32px;max-width:400px;background:#fff;'
+                        'border-radius:20px;box-shadow:0 8px 40px rgba(0,0,0,.1)}'
+                        '.ico{font-size:56px;margin-bottom:16px}'
+                        '.ttl{font-size:20px;font-weight:800;color:#166534;margin-bottom:10px}'
+                        '.msg{color:#4b7c59;font-size:14px;line-height:1.7;margin-bottom:24px}'
+                        '.btn{display:inline-flex;align-items:center;gap:8px;background:#06c755;'
+                        'color:#fff;padding:14px 28px;border-radius:50px;text-decoration:none;'
+                        'font-weight:700;font-size:15px;box-shadow:0 4px 16px rgba(6,199,85,.4)}'
+                        '.back{margin-top:14px;font-size:12px;color:#9ca3af}'
+                        '.back a{color:#6b7280;text-decoration:none}'
+                        '</style></head><body><div class="box">'
+                        '<div class="ico">🔒</div>'
+                        '<div class="ttl">尚未加入官方帳號</div>'
+                        '<div class="msg">此系統僅限已加入 LINE 官方帳號好友的成員使用。'
+                        '<br>請先加入好友後再重新登入。</div>'
+                        f'<a href="{_add_url}" class="btn">'
+                        '<svg width="20" height="20" viewBox="0 0 24 24" fill="white">'
+                        '<path d="M12 2C6.48 2 2 5.92 2 10.77c0 3.28 2.04 6.14 5.09 '
+                        '7.76L6 22l4.41-2.33c.51.09 1.04.13 1.59.13 5.52 0 10-3.92 '
+                        '10-8.77C22 5.92 17.52 2 12 2z"/></svg>'
+                        '加入好友</a>'
+                        '<div class="back"><a href="/">← 返回首頁</a></div>'
+                        '</div></body></html>'
+                    )
+                    return not_friend_html, 403
+    except Exception:
+        pass  # If check fails, allow login (fail open)
 
     from flask import redirect as _redir
     return _redir('/')

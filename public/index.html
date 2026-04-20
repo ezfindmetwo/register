@@ -351,7 +351,8 @@ a{color:inherit;text-decoration:none}
   <symbol id="ic-list"    viewBox="0 0 24 24"><path d="M9 5h11M9 12h11M9 19h11M5 5h.01M5 12h.01M5 19h.01"/></symbol>
   <symbol id="ic-chart"   viewBox="0 0 24 24"><rect x="3" y="12" width="4" height="9" rx="1"/><rect x="10" y="7" width="4" height="14" rx="1"/><rect x="17" y="3" width="4" height="18" rx="1"/></symbol>
   <symbol id="ic-check"   viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></symbol>
-  <symbol id="ic-signal"  viewBox="0 0 24 24"><path d="M1.5 8.5a14 14 0 0121 0M5 12a10 10 0 0114 0M8.5 15.5a6 6 0 017 0M12 19h.01"/></symbol>
+  <symbol id="ic-link" viewBox="0 0 24 24"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></symbol>
+    <symbol id="ic-signal"  viewBox="0 0 24 24"><path d="M1.5 8.5a14 14 0 0121 0M5 12a10 10 0 0114 0M8.5 15.5a6 6 0 017 0M12 19h.01"/></symbol>
   <symbol id="ic-left"    viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></symbol>
   <symbol id="ic-right"   viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></symbol>
   <symbol id="ic-clock"   viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></symbol>
@@ -417,6 +418,8 @@ a{color:inherit;text-decoration:none}
       <button class="tabbtn" onclick="Admin.tab('bk',this)"><svg class="ico" style="font-size:13px"><use href="#ic-list"/></svg> 預約清單</button>
       <button class="tabbtn" onclick="Admin.tab('pw',this)"><svg class="ico" style="font-size:13px"><use href="#ic-lock"/></svg> 修改密碼</button>
       <button class="tabbtn" onclick="Admin.tab('sys',this)"><svg class="ico" style="font-size:13px"><use href="#ic-signal"/></svg> 系統設定</button>
+      <button class="tabbtn" onclick="Admin.tab('line',this)">🟢 LINE 設定</button>
+      <button class="tabbtn" onclick="Admin.tab('google',this)">📊 Google 設定</button>
     </div>
 
     <!-- ── Event Tab ── -->
@@ -593,6 +596,86 @@ a{color:inherit;text-decoration:none}
       </div>
     </div>
 
+    <!-- ── Integration Tab ── -->
+    <!-- ── LINE Tab ── -->
+    <div class="panel hidden" id="tab-line">
+      <h3>🟢 LINE 設定</h3>
+      <div style="max-width:480px;display:flex;flex-direction:column;gap:24px">
+        <div>
+          <div class="fl" style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:8px">🟢 LINE 官方帳號設定</div>
+          <p style="font-size:12px;color:var(--t3);margin-bottom:12px">設定後可驗證使用者是否已加入官方帳號好友，未加入者將無法使用系統。</p>
+          <div class="fg2">
+            <div class="fg">
+              <label class="fl">Channel Secret</label>
+              <div style="position:relative;display:flex;align-items:center">
+                <input class="fi" type="password" id="s-line-secret" placeholder="Basic settings 頁的 Channel secret" autocomplete="off" style="padding-right:40px;flex:1">
+                <button type="button" onclick="Admin.toggleSecretVisibility()" title="顯示/隱藏"
+                  style="position:absolute;right:10px;background:none;border:none;cursor:pointer;color:var(--t3);font-size:16px;padding:0;line-height:1" id="btn-eye-secret">👁</button>
+              </div>
+              <p style="font-size:11px;color:var(--t4);margin-top:3px">用於驗證 Webhook 請求的合法性。</p>
+            </div>
+            <div class="fg">
+              <label class="fl">Channel Access Token</label>
+              <div style="position:relative;display:flex;align-items:center">
+                <input class="fi" type="password" id="s-line-token" placeholder="從 LINE Developers Console 取得" autocomplete="off" style="padding-right:40px;flex:1">
+                <button type="button" onclick="Admin.toggleTokenVisibility()" title="顯示/隱藏"
+                  style="position:absolute;right:10px;background:none;border:none;cursor:pointer;color:var(--t3);font-size:16px;padding:0;line-height:1" id="btn-eye-token">👁</button>
+              </div>
+              <p style="font-size:11px;color:var(--t4);margin-top:3px">留空則不啟用好友驗證，所有 LINE 使用者都可登入。</p>
+            </div>
+            <div class="fg">
+              <label class="fl">Basic ID（@開頭）</label>
+              <input class="fi" type="text" id="s-line-basic" placeholder="例：@008gpzcl">
+              <p style="font-size:11px;color:var(--t4);margin-top:3px">用於在未加好友頁面提供加入連結。</p>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
+            <button class="btn btn-p btn-sm" onclick="Admin.saveLineToken()"><svg class="ico"><use href="#ic-check"/></svg> 儲存設定</button>
+            <button class="btn btn-g btn-sm" onclick="Admin.testLineToken()">🔍 測試連線</button>
+            <div id="line-token-res" style="font-size:12px"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Google Tab ── -->
+    <div class="panel" class="hidden" id="tab-google">
+      <h3>📊 Google 設定</h3>
+      <div style="max-width:480px;display:flex;flex-direction:column;gap:24px">
+        <div>
+          <div class="fl" style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:8px">📊 Google Sheet 設定</div>
+          <p style="font-size:12px;color:var(--t3);margin-bottom:10px">設定後可直接同步預約資料到指定的 Google 試算表。
+            <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:var(--ac)">→ 取得 OAuth Client ID</a>
+          </p>
+          <div class="fg" style="max-width:480px">
+            <label class="fl">Google Sheet ID</label>
+            <input class="fi" id="sys-gsheet-id" placeholder="試算表網址 /d/ 後面那段" type="text">
+            <p style="font-size:11px;color:var(--t4);margin-top:3px">例：https://docs.google.com/spreadsheets/d/<strong>這一段</strong>/edit</p>
+          </div>
+          <div class="fg" style="max-width:480px;margin-top:8px">
+            <label class="fl">Google OAuth Client ID</label>
+            <input class="fi" id="sys-gsheet-client" placeholder="xxxxxx.apps.googleusercontent.com" type="text">
+          </div>
+          <div class="fg" style="max-width:480px;margin-top:8px">
+            <label class="fl">工作表名稱（預設：自動偵測第一個工作表）</label>
+            <input class="fi" id="sys-gsheet-tab" placeholder="例：工作表1 或 Sheet1 或 預約資料" type="text">
+            <p style="font-size:11px;color:var(--t4);margin-top:3px">留空則自動使用試算表的第一個工作表</p>
+          </div>
+          <div class="fg" style="max-width:480px;margin-top:8px">
+            <label class="fl">流水帳工作表名稱（異動記錄）</label>
+            <input class="fi" id="sys-log-tab" placeholder="例：異動記錄 或 Log" type="text">
+            <p style="font-size:11px;color:var(--t4);margin-top:3px">每次預約/尋找替代人/接手等操作都會寫入此工作表。留空則不記錄。</p>
+          </div>
+          <button class="btn btn-p btn-sm" style="margin-top:10px" onclick="Admin.saveSettings()">
+            <svg class="ico"><use href="#ic-check"/></svg> 儲存設定
+          </button>
+          <div id="sys-gsheet-hint" style="display:none;margin-top:10px;padding:10px 14px;background:var(--s1);border-radius:8px;font-size:12px;color:var(--t3)">
+            ✅ Google Sheet 已設定，「同步到 Google Sheet」按鈕已啟用。首次使用需授權 Google 帳號。
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- ── Password Tab ── -->
     <div class="panel hidden" id="tab-pw">
       <h3><svg class="ico" style="font-size:15px"><use href="#ic-lock"/></svg> 修改管理者密碼</h3>
@@ -618,6 +701,10 @@ a{color:inherit;text-decoration:none}
     <div class="panel hidden" id="tab-sys">
       <h3><svg class="ico" style="font-size:15px"><use href="#ic-signal"/></svg> 系統設定</h3>
       <div style="max-width:480px;display:flex;flex-direction:column;gap:24px">
+
+
+        <hr class="divider" style="margin:0">
+
         <div>
           <div class="fl" style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:8px">自動登出設定</div>
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -653,37 +740,7 @@ a{color:inherit;text-decoration:none}
                 <hr class="divider" style="margin:0">
 
         <!-- Google Sheet Settings -->
-        <div>
-          <div class="fl" style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:8px">📊 Google Sheet 設定</div>
-          <p style="font-size:12px;color:var(--t3);margin-bottom:10px">設定後可直接同步預約資料到指定的 Google 試算表。
-            <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:var(--ac)">→ 取得 OAuth Client ID</a>
-          </p>
-          <div class="fg" style="max-width:480px">
-            <label class="fl">Google Sheet ID</label>
-            <input class="fi" id="sys-gsheet-id" placeholder="試算表網址 /d/ 後面那段" type="text">
-            <p style="font-size:11px;color:var(--t4);margin-top:3px">例：https://docs.google.com/spreadsheets/d/<strong>這一段</strong>/edit</p>
-          </div>
-          <div class="fg" style="max-width:480px;margin-top:8px">
-            <label class="fl">Google OAuth Client ID</label>
-            <input class="fi" id="sys-gsheet-client" placeholder="xxxxxx.apps.googleusercontent.com" type="text">
-          </div>
-          <div class="fg" style="max-width:480px;margin-top:8px">
-            <label class="fl">工作表名稱（預設：自動偵測第一個工作表）</label>
-            <input class="fi" id="sys-gsheet-tab" placeholder="例：工作表1 或 Sheet1 或 預約資料" type="text">
-            <p style="font-size:11px;color:var(--t4);margin-top:3px">留空則自動使用試算表的第一個工作表</p>
-          </div>
-          <div class="fg" style="max-width:480px;margin-top:8px">
-            <label class="fl">流水帳工作表名稱（異動記錄）</label>
-            <input class="fi" id="sys-log-tab" placeholder="例：異動記錄 或 Log" type="text">
-            <p style="font-size:11px;color:var(--t4);margin-top:3px">每次預約/尋找替代人/接手等操作都會寫入此工作表。留空則不記錄。</p>
-          </div>
-          <button class="btn btn-p btn-sm" style="margin-top:10px" onclick="Admin.saveSettings()">
-            <svg class="ico"><use href="#ic-check"/></svg> 儲存設定
-          </button>
-          <div id="sys-gsheet-hint" style="display:none;margin-top:10px;padding:10px 14px;background:var(--s1);border-radius:8px;font-size:12px;color:var(--t3)">
-            ✅ Google Sheet 已設定，「同步到 Google Sheet」按鈕已啟用。首次使用需授權 Google 帳號。
-          </div>
-        </div>
+
 
         <hr class="divider" style="margin:0">
 
@@ -910,11 +967,12 @@ const Admin={
   mode:'uniform',emailProvider:'resend',excludedDates:[],
   async load(){await Promise.all([Admin.loadEventList(),Admin.loadBk(),Admin.loadEm(),Admin.loadSettings()]);},
   tab(n,btn){
-    ['ev','em','bk','pw','sys'].forEach(t=>{const el=document.getElementById('tab-'+t);if(el)el.classList.add('hidden');});
+    ['ev','em','bk','pw','sys','line','google'].forEach(t=>{const el=document.getElementById('tab-'+t);if(el)el.classList.add('hidden');});
     if(n==='ev')Admin.loadEventList();
     const panel=document.getElementById('tab-'+n);if(panel)panel.classList.remove('hidden');
     document.querySelectorAll('.tabbtn').forEach(b=>b.classList.remove('on'));btn.classList.add('on');
     if(n==='bk')Admin.loadBk();
+    if(n==='sys'||n==='line'||n==='google')Admin.loadSettings();
   },
   async loadEventList(){
     // Always hide editor, show list when loading event list
@@ -1349,6 +1407,67 @@ const Admin={
       }
     }catch{}
   },
+  toggleSecretVisibility(){
+    const inp=document.getElementById('s-line-secret');
+    const btn=document.getElementById('btn-eye-secret');
+    if(inp.type==='password'){inp.type='text';btn.textContent='🙈';}
+    else{inp.type='password';btn.textContent='👁';}
+  },
+
+  toggleTokenVisibility(){
+    const inp=document.getElementById('s-line-token');
+    const btn=document.getElementById('btn-eye-token');
+    if(inp.type==='password'){inp.type='text';btn.textContent='🙈';}
+    else{inp.type='password';btn.textContent='👁';}
+  },
+
+  async testLineToken(){
+    const res=document.getElementById('line-token-res');
+    const tokenInput=document.getElementById('s-line-token').value.trim();
+    // If masked, test stored token; otherwise test what's typed
+    const payload=tokenInput.startsWith('••')?{}:{token:tokenInput};
+    try{
+      res.textContent='測試中…'; res.style.color='var(--t3)';
+      L.show();
+      const r=await api.post('/api/admin/test-line-token', payload);
+      res.innerHTML=`✅ 連線成功！機器人名稱：<strong>${r.name}</strong>，追蹤人數：${r.followers}`;
+      res.style.color='var(--ok)';
+    }catch(e){
+      res.textContent='❌ '+e.message;
+      res.style.color='var(--warn)';
+    }finally{L.hide();}
+  },
+
+  async saveLineToken(){
+    const token=document.getElementById('s-line-token').value.trim();
+    const secret=document.getElementById('s-line-secret').value.trim();
+    const finalSecret=secret.startsWith('••')?S._lineSecret:secret;
+    const basic=document.getElementById('s-line-basic').value.trim();
+    const res=document.getElementById('line-token-res');
+    if(res)res.textContent='';
+    // If showing masked value, don't overwrite token
+    const finalToken=token.startsWith('••')?S._lineToken:token;
+    try{L.show();
+      await api.put('/api/admin/settings',{
+        auto_logout:parseInt((document.getElementById('s-auto')||{value:'0'}).value)||0,
+        gsheet_id:(document.getElementById('s-gid')||{value:''}).value.trim(),
+        gsheet_client:(document.getElementById('s-gcl')||{value:''}).value.trim(),
+        gsheet_tab:(document.getElementById('s-gtab')||{value:''}).value.trim(),
+        log_sheet_tab:(document.getElementById('s-ltab')||{value:''}).value.trim(),
+        line_channel_token:finalToken,
+        line_channel_secret:finalSecret,
+        line_basic_id:basic,
+      });
+      S._lineToken=finalToken; S._lineSecret=finalSecret; S._lineBasicId=basic;
+      if(res){res.textContent=finalToken?'✓ 已儲存，好友驗證已啟用':'✓ 已儲存（未啟用驗證）';res.style.color='var(--ok)';}
+      if(finalToken)document.getElementById('s-line-token').value='••••••••••••（已設定）';
+      Toast.show('LINE 設定已儲存','s');
+    }catch(e){
+      if(res){res.textContent=e.message;res.style.color='var(--warn)';}
+      Toast.show(e.message,'e');
+    }finally{L.hide();}
+  },
+
   async saveSettings(){
     const al=+(document.getElementById('sys-al').value)||0;
     const gid=(document.getElementById('sys-gsheet-id')||{value:''}).value.trim();
