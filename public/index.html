@@ -601,10 +601,10 @@ a{color:inherit;text-decoration:none}
           <input class="fi" type="password" id="pw-cur" placeholder="請輸入目前密碼" autocomplete="current-password">
         </div>
         <div class="fg"><label class="fl">新密碼（至少 6 字元）</label>
-          <input class="fi" type="password" id="pw-new" placeholder="請輸入新密碼" autocomplete="new-password">
+          <input class="fi" type="password" id="pw-new" placeholder="至少12碼，含大小寫、數字、符號" autocomplete="new-password">
         </div>
         <div class="fg"><label class="fl">確認新密碼</label>
-          <input class="fi" type="password" id="pw-cfm" placeholder="再次輸入新密碼" autocomplete="new-password"
+          <input class="fi" type="password" id="pw-cfm" placeholder="再次輸入新密碼（至少12碼）" autocomplete="new-password"
             onkeydown="if(event.key==='Enter')Admin.changePw()">
         </div>
         <div id="pw-res" class="hidden"></div>
@@ -1432,10 +1432,10 @@ const Admin={
       if(!data.length){Toast.show('沒有預約資料可同步','i');L.hide();return;}
 
       // 4. Prepare rows
-      const headers=['活動名稱','LINE顯示名稱','Email','LINE User ID','預約日期','開始時間','結束時間'];
+      const headers=['活動名稱','LINE顯示名稱','Email','LINE User ID','頭像網址','預約日期','開始時間','結束時間'];
       const rows=[headers,...data.map(b=>[
         b.event_name||'',b.display_name||'',b.email||'',
-        b.line_user_id||'',b.booking_date||'',
+        b.line_user_id||'',b.picture_url||'',b.booking_date||'',
         String(b.slot_start_time||'').substring(0,5),
         String(b.slot_end_time||'').substring(0,5)
       ])];

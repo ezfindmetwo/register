@@ -1,6 +1,7 @@
 """排程預約系統 — Flask + SQLite"""
 import os, sqlite3, random, smtplib, ssl, functools, requests as _requests
 from datetime import datetime, timedelta, timezone
+import bcrypt as _bcrypt
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.header import Header
@@ -139,6 +140,16 @@ def init_db():
             UNIQUE(event_id, line_user_id)
         );
         CREATE INDEX IF NOT EXISTS idx_excl_usr_event ON event_excluded_users(event_id);
+        CREATE TABLE IF NOT EXISTS admin_password_history (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            password   TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS admin_login_attempts (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            ip         TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
         """)
     # Migration: add columns (idempotent)
     with get_db() as c:
@@ -173,7 +184,7 @@ def init_db():
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 def get_admin_password():
-    """Get admin password from DB (overrides ADMIN_PASSWORD env var)."""
+    """Get admin password hash from DB."""""
     try:
         with get_db() as c:
             row = c.execute('SELECT password FROM admin_settings WHERE id=1').fetchone()
@@ -187,6 +198,69 @@ def rows_to_list(rs): return [dict(r) for r in rs]
 def generate_code():  return ''.join(random.choices('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', k=6))
 def now_str():        return datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')
 def expires_at(m=10): return (datetime.now(timezone.utc)+timedelta(minutes=m)).strftime('%Y-%m-%d %H:%M:%S')
+# ── Password helpers ─────────────────────────────────────────────────────────
+def _hash_pwd(pwd):
+    return _bcrypt.hashpw(pwd.encode('utf-8'), _bcrypt.gensalt(rounds=12)).decode('utf-8')
+
+def _verify_pwd(pwd, hashed):
+    """驗證密碼，自動相容明文（舊）和 bcrypt hash（新）。"""
+    if not hashed:
+        return False
+    try:
+        # 如果是 bcrypt hash（以 $2b$ 開頭），用 bcrypt 驗證
+        if hashed.startswith('$2b$') or hashed.startswith('$2a$'):
+            return _bcrypt.checkpw(pwd.encode('utf-8'), hashed.encode('utf-8'))
+        # 否則是舊版明文密碼，直接比對
+        return pwd == hashed
+    except Exception:
+        return False
+
+def _upgrade_pwd_if_needed(pwd, hashed):
+    """如果目前是明文密碼，登入成功後自動升級為 bcrypt hash。"""""
+    if hashed and not (hashed.startswith('$2b$') or hashed.startswith('$2a$')):
+        new_hash = _hash_pwd(pwd)
+        try:
+            with get_db() as c:
+                c.execute('UPDATE admin_settings SET password=? WHERE id=1', (new_hash,))
+        except Exception:
+            pass
+
+def _validate_pwd_policy(pwd):
+    import re
+    if len(pwd) < 12:
+        return '密碼至少需要 12 個字元'
+    if not re.search(r'[A-Z]', pwd):
+        return '密碼需包含至少一個大寫英文字母'
+    if not re.search(r'[a-z]', pwd):
+        return '密碼需包含至少一個小寫英文字母'
+    if not re.search(r'[0-9]', pwd):
+        return '密碼需包含至少一個數字'
+    if not any(ch in '!@#$%^&*()_+-=[]{}|;:,.<>?/`~"\'' for ch in pwd):
+        return '密碼需包含至少一個特殊符號（如 !@#$%^&*）'
+    return None
+
+def _is_pwd_reused(new_pwd, history):
+    for h in history:
+        if _verify_pwd(new_pwd, h):
+            return True
+    return False
+
+# ── Rate limiting for login ───────────────────────────────────────────────────
+_LOGIN_WINDOW = 300   # 5 minutes
+_LOGIN_MAX    = 5     # max attempts
+
+def _check_login_rate(ip):
+    with get_db() as c:
+        # Clean old attempts
+        c.execute("DELETE FROM admin_login_attempts WHERE created_at < datetime('now', ?)",
+                  (f'-{_LOGIN_WINDOW} seconds',))
+        count = c.execute('SELECT COUNT(*) FROM admin_login_attempts WHERE ip=?', (ip,)).fetchone()[0]
+    return count < _LOGIN_MAX
+
+def _record_login_attempt(ip):
+    with get_db() as c:
+        c.execute('INSERT INTO admin_login_attempts(ip) VALUES(?)', (ip,))
+
 def ok(**kw):         return jsonify({'success': True, **kw})
 def err(msg, s=400):  return jsonify({'error': msg}), s
 
@@ -379,8 +453,19 @@ def auth_status():
 # ══════════════════════════════════════════════════════════════════════════════
 @app.post('/api/admin/login')
 def admin_login():
-    if (request.json or {}).get('password') == get_admin_password():
-        session['is_admin'] = True; session.permanent = True; return ok()
+    ip = request.headers.get('X-Forwarded-For', request.remote_addr or 'unknown').split(',')[0].strip()
+    if not _check_login_rate(ip):
+        return err('登入嘗試次數過多，請 5 分鐘後再試', 429)
+    pwd = (request.json or {}).get('password', '')
+    stored = get_admin_password()
+    if _verify_pwd(pwd, stored):
+        session['is_admin'] = True; session.permanent = True
+        # Auto-upgrade plaintext password to bcrypt on first login
+        _upgrade_pwd_if_needed(pwd, stored)
+        # Clear login attempts on success
+        with get_db() as c: c.execute('DELETE FROM admin_login_attempts WHERE ip=?', (ip,))
+        return ok()
+    _record_login_attempt(ip)
     return err('密碼錯誤', 401)
 
 @app.post('/api/admin/logout')
@@ -394,14 +479,31 @@ def change_password():
     current = (d.get('current') or '').strip()
     new_pwd = (d.get('new')     or '').strip()
     confirm = (d.get('confirm') or '').strip()
-    if current != get_admin_password():
+    if not _verify_pwd(current, get_admin_password()):
         return err('目前密碼不正確')
-    if len(new_pwd) < 6:
-        return err('新密碼至少需要 6 個字元')
     if new_pwd != confirm:
         return err('新密碼與確認密碼不符')
+    policy_err = _validate_pwd_policy(new_pwd)
+    if policy_err:
+        return err(policy_err)
     with get_db() as c:
-        c.execute('INSERT OR REPLACE INTO admin_settings(id,password) VALUES(1,?)', (new_pwd,))
+        # Check password history (last 3)
+        history = [r[0] for r in c.execute(
+            'SELECT password FROM admin_password_history ORDER BY id DESC LIMIT 3').fetchall()]
+        if _is_pwd_reused(new_pwd, history):
+            return err('新密碼不可與最近 3 次使用過的密碼相同')
+        # Check not same as current
+        if _verify_pwd(new_pwd, get_admin_password()):
+            return err('新密碼不可與目前密碼相同')
+        hashed = _hash_pwd(new_pwd)
+        # Save old password to history
+        old_hash = get_admin_password()
+        if old_hash and old_hash != '$2b$12$placeholder':
+            c.execute('INSERT INTO admin_password_history(password) VALUES(?)', (old_hash,))
+            # Keep only last 5 history records
+            c.execute('DELETE FROM admin_password_history WHERE id NOT IN (SELECT id FROM admin_password_history ORDER BY id DESC LIMIT 5)')
+        # Update password
+        c.execute('UPDATE admin_settings SET password=? WHERE id=1', (hashed,))
     return ok()
 
 @app.get('/api/admin/email-settings')
@@ -654,7 +756,7 @@ def admin_bookings():
         if eid:
             rows = c.execute(
                 'SELECT b.id,b.event_id,ev.name as event_name,'
-                'u.email,u.chinese_name,u.display_name,u.line_user_id,'
+                'u.email,u.chinese_name,u.display_name,u.line_user_id,u.picture_url,'
                 'b.booking_date,b.slot_start_time,b.slot_end_time,b.created_at '
                 'FROM slot_bookings b JOIN users u ON b.user_id=u.id '
                 'JOIN events ev ON b.event_id=ev.id '
@@ -663,7 +765,7 @@ def admin_bookings():
         else:
             rows = c.execute(
                 'SELECT b.id,b.event_id,ev.name as event_name,'
-                'u.email,u.chinese_name,u.display_name,u.line_user_id,'
+                'u.email,u.chinese_name,u.display_name,u.line_user_id,u.picture_url,'
                 'b.booking_date,b.slot_start_time,b.slot_end_time,b.created_at '
                 'FROM slot_bookings b JOIN users u ON b.user_id=u.id '
                 'JOIN events ev ON b.event_id=ev.id '
@@ -674,7 +776,10 @@ def admin_bookings():
 @app.delete('/api/admin/booking/<int:bid>')
 @admin_required
 def del_booking(bid):
-    with get_db() as c: c.execute('DELETE FROM slot_bookings WHERE id=?', (bid,))
+    with get_db() as c:
+        row = c.execute('SELECT id FROM slot_bookings WHERE id=?', (bid,)).fetchone()
+        if not row: return err('預約不存在', 404)
+        c.execute('DELETE FROM slot_bookings WHERE id=?', (bid,))
     return ok()
 
 @app.get('/api/admin/export')
@@ -996,6 +1101,7 @@ def line_callback():
 
     return _line_result_page(ok=True, needs_name=False, display=display, pic=pic)
 from datetime import datetime, timedelta, timezone
+import bcrypt as _bcrypt
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.header import Header
@@ -1134,6 +1240,16 @@ def init_db():
             UNIQUE(event_id, line_user_id)
         );
         CREATE INDEX IF NOT EXISTS idx_excl_usr_event ON event_excluded_users(event_id);
+        CREATE TABLE IF NOT EXISTS admin_password_history (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            password   TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS admin_login_attempts (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            ip         TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
         """)
     # Migration: add columns (idempotent)
     with get_db() as c:
@@ -1168,7 +1284,7 @@ def init_db():
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 def get_admin_password():
-    """Get admin password from DB (overrides ADMIN_PASSWORD env var)."""
+    """Get admin password hash from DB."""""
     try:
         with get_db() as c:
             row = c.execute('SELECT password FROM admin_settings WHERE id=1').fetchone()
@@ -1182,6 +1298,69 @@ def rows_to_list(rs): return [dict(r) for r in rs]
 def generate_code():  return ''.join(random.choices('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', k=6))
 def now_str():        return datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')
 def expires_at(m=10): return (datetime.now(timezone.utc)+timedelta(minutes=m)).strftime('%Y-%m-%d %H:%M:%S')
+# ── Password helpers ─────────────────────────────────────────────────────────
+def _hash_pwd(pwd):
+    return _bcrypt.hashpw(pwd.encode('utf-8'), _bcrypt.gensalt(rounds=12)).decode('utf-8')
+
+def _verify_pwd(pwd, hashed):
+    """驗證密碼，自動相容明文（舊）和 bcrypt hash（新）。"""
+    if not hashed:
+        return False
+    try:
+        # 如果是 bcrypt hash（以 $2b$ 開頭），用 bcrypt 驗證
+        if hashed.startswith('$2b$') or hashed.startswith('$2a$'):
+            return _bcrypt.checkpw(pwd.encode('utf-8'), hashed.encode('utf-8'))
+        # 否則是舊版明文密碼，直接比對
+        return pwd == hashed
+    except Exception:
+        return False
+
+def _upgrade_pwd_if_needed(pwd, hashed):
+    """如果目前是明文密碼，登入成功後自動升級為 bcrypt hash。"""""
+    if hashed and not (hashed.startswith('$2b$') or hashed.startswith('$2a$')):
+        new_hash = _hash_pwd(pwd)
+        try:
+            with get_db() as c:
+                c.execute('UPDATE admin_settings SET password=? WHERE id=1', (new_hash,))
+        except Exception:
+            pass
+
+def _validate_pwd_policy(pwd):
+    import re
+    if len(pwd) < 12:
+        return '密碼至少需要 12 個字元'
+    if not re.search(r'[A-Z]', pwd):
+        return '密碼需包含至少一個大寫英文字母'
+    if not re.search(r'[a-z]', pwd):
+        return '密碼需包含至少一個小寫英文字母'
+    if not re.search(r'[0-9]', pwd):
+        return '密碼需包含至少一個數字'
+    if not any(ch in '!@#$%^&*()_+-=[]{}|;:,.<>?/`~"\'' for ch in pwd):
+        return '密碼需包含至少一個特殊符號（如 !@#$%^&*）'
+    return None
+
+def _is_pwd_reused(new_pwd, history):
+    for h in history:
+        if _verify_pwd(new_pwd, h):
+            return True
+    return False
+
+# ── Rate limiting for login ───────────────────────────────────────────────────
+_LOGIN_WINDOW = 300   # 5 minutes
+_LOGIN_MAX    = 5     # max attempts
+
+def _check_login_rate(ip):
+    with get_db() as c:
+        # Clean old attempts
+        c.execute("DELETE FROM admin_login_attempts WHERE created_at < datetime('now', ?)",
+                  (f'-{_LOGIN_WINDOW} seconds',))
+        count = c.execute('SELECT COUNT(*) FROM admin_login_attempts WHERE ip=?', (ip,)).fetchone()[0]
+    return count < _LOGIN_MAX
+
+def _record_login_attempt(ip):
+    with get_db() as c:
+        c.execute('INSERT INTO admin_login_attempts(ip) VALUES(?)', (ip,))
+
 def ok(**kw):         return jsonify({'success': True, **kw})
 def err(msg, s=400):  return jsonify({'error': msg}), s
 
@@ -1374,8 +1553,19 @@ def auth_status():
 # ══════════════════════════════════════════════════════════════════════════════
 @app.post('/api/admin/login')
 def admin_login():
-    if (request.json or {}).get('password') == get_admin_password():
-        session['is_admin'] = True; session.permanent = True; return ok()
+    ip = request.headers.get('X-Forwarded-For', request.remote_addr or 'unknown').split(',')[0].strip()
+    if not _check_login_rate(ip):
+        return err('登入嘗試次數過多，請 5 分鐘後再試', 429)
+    pwd = (request.json or {}).get('password', '')
+    stored = get_admin_password()
+    if _verify_pwd(pwd, stored):
+        session['is_admin'] = True; session.permanent = True
+        # Auto-upgrade plaintext password to bcrypt on first login
+        _upgrade_pwd_if_needed(pwd, stored)
+        # Clear login attempts on success
+        with get_db() as c: c.execute('DELETE FROM admin_login_attempts WHERE ip=?', (ip,))
+        return ok()
+    _record_login_attempt(ip)
     return err('密碼錯誤', 401)
 
 @app.post('/api/admin/logout')
@@ -1389,14 +1579,31 @@ def change_password():
     current = (d.get('current') or '').strip()
     new_pwd = (d.get('new')     or '').strip()
     confirm = (d.get('confirm') or '').strip()
-    if current != get_admin_password():
+    if not _verify_pwd(current, get_admin_password()):
         return err('目前密碼不正確')
-    if len(new_pwd) < 6:
-        return err('新密碼至少需要 6 個字元')
     if new_pwd != confirm:
         return err('新密碼與確認密碼不符')
+    policy_err = _validate_pwd_policy(new_pwd)
+    if policy_err:
+        return err(policy_err)
     with get_db() as c:
-        c.execute('INSERT OR REPLACE INTO admin_settings(id,password) VALUES(1,?)', (new_pwd,))
+        # Check password history (last 3)
+        history = [r[0] for r in c.execute(
+            'SELECT password FROM admin_password_history ORDER BY id DESC LIMIT 3').fetchall()]
+        if _is_pwd_reused(new_pwd, history):
+            return err('新密碼不可與最近 3 次使用過的密碼相同')
+        # Check not same as current
+        if _verify_pwd(new_pwd, get_admin_password()):
+            return err('新密碼不可與目前密碼相同')
+        hashed = _hash_pwd(new_pwd)
+        # Save old password to history
+        old_hash = get_admin_password()
+        if old_hash and old_hash != '$2b$12$placeholder':
+            c.execute('INSERT INTO admin_password_history(password) VALUES(?)', (old_hash,))
+            # Keep only last 5 history records
+            c.execute('DELETE FROM admin_password_history WHERE id NOT IN (SELECT id FROM admin_password_history ORDER BY id DESC LIMIT 5)')
+        # Update password
+        c.execute('UPDATE admin_settings SET password=? WHERE id=1', (hashed,))
     return ok()
 
 @app.get('/api/admin/email-settings')
@@ -1649,7 +1856,7 @@ def admin_bookings():
         if eid:
             rows = c.execute(
                 'SELECT b.id,b.event_id,ev.name as event_name,'
-                'u.email,u.chinese_name,u.display_name,u.line_user_id,'
+                'u.email,u.chinese_name,u.display_name,u.line_user_id,u.picture_url,'
                 'b.booking_date,b.slot_start_time,b.slot_end_time,b.created_at '
                 'FROM slot_bookings b JOIN users u ON b.user_id=u.id '
                 'JOIN events ev ON b.event_id=ev.id '
@@ -1658,7 +1865,7 @@ def admin_bookings():
         else:
             rows = c.execute(
                 'SELECT b.id,b.event_id,ev.name as event_name,'
-                'u.email,u.chinese_name,u.display_name,u.line_user_id,'
+                'u.email,u.chinese_name,u.display_name,u.line_user_id,u.picture_url,'
                 'b.booking_date,b.slot_start_time,b.slot_end_time,b.created_at '
                 'FROM slot_bookings b JOIN users u ON b.user_id=u.id '
                 'JOIN events ev ON b.event_id=ev.id '
@@ -1669,7 +1876,10 @@ def admin_bookings():
 @app.delete('/api/admin/booking/<int:bid>')
 @admin_required
 def del_booking(bid):
-    with get_db() as c: c.execute('DELETE FROM slot_bookings WHERE id=?', (bid,))
+    with get_db() as c:
+        row = c.execute('SELECT id FROM slot_bookings WHERE id=?', (bid,)).fetchone()
+        if not row: return err('預約不存在', 404)
+        c.execute('DELETE FROM slot_bookings WHERE id=?', (bid,))
     return ok()
 
 @app.get('/api/admin/export')
@@ -2263,6 +2473,16 @@ def all_availability():
                 result[ds2] = {'status': status, 'total': total, 'booked': booked}
         cur += _td(days=1)
     return jsonify(availability=result, my_dates=list(my_dates_set), my_total=len(my_dates), excluded_dates=excluded_list, is_excluded=is_excluded)
+
+@app.after_request
+def add_security_headers(response):
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    if IS_HTTPS:
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    return response
 
 @app.get('/')
 def index(): return send_from_directory('public', 'index.html')
