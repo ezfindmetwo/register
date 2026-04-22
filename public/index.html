@@ -377,6 +377,12 @@ a{color:inherit;text-decoration:none}
         <div class="hbtn-lbl">一般使用者</div><div class="hbtn-sub">User Registration</div>
       </button>
     </div>
+    <div style="margin-top:28px;text-align:center">
+      <p style="color:var(--t3);font-size:12px;margin-bottom:10px">加入 LINE 官方帳號以獲得更多好康資訊</p>
+      <img src="/line-qrcode.png" alt="LINE QR Code"
+        style="width:140px;height:140px;border-radius:12px;border:1px solid var(--bd);box-shadow:var(--sh)"
+        onerror="this.style.display='none'">
+    </div>
   </div>
 </div>
 
@@ -627,6 +633,15 @@ a{color:inherit;text-decoration:none}
               <label class="fl">Basic ID（@開頭）</label>
               <input class="fi" type="text" id="s-line-basic" placeholder="例：@008gpzcl">
               <p style="font-size:11px;color:var(--t4);margin-top:3px">用於在未加好友頁面提供加入連結。</p>
+            </div>
+            <div class="fg">
+              <label class="fl">LINE 官方帳號 ID</label>
+              <input class="fi" type="text" id="s-line-acc-id" placeholder="例：@CoreVistaX">
+            </div>
+            <div class="fg">
+              <label class="fl">LINE 官方帳號名稱</label>
+              <input class="fi" type="text" id="s-line-acc-name" placeholder="例：CoreVistaX第九屆福委會">
+              <p style="font-size:11px;color:var(--t4);margin-top:3px">顯示在未加好友的提示頁面。</p>
             </div>
           </div>
           <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
@@ -1443,20 +1458,24 @@ const Admin={
     const secret=document.getElementById('s-line-secret').value.trim();
     const finalSecret=secret.startsWith('••')?S._lineSecret:secret;
     const basic=document.getElementById('s-line-basic').value.trim();
+    const accId=document.getElementById('s-line-acc-id').value.trim();
+    const accName=document.getElementById('s-line-acc-name').value.trim();
     const res=document.getElementById('line-token-res');
     if(res)res.textContent='';
     // If showing masked value, don't overwrite token
     const finalToken=token.startsWith('••')?S._lineToken:token;
     try{L.show();
       await api.put('/api/admin/settings',{
-        auto_logout:parseInt((document.getElementById('s-auto')||{value:'0'}).value)||0,
-        gsheet_id:(document.getElementById('s-gid')||{value:''}).value.trim(),
-        gsheet_client:(document.getElementById('s-gcl')||{value:''}).value.trim(),
-        gsheet_tab:(document.getElementById('s-gtab')||{value:''}).value.trim(),
-        log_sheet_tab:(document.getElementById('s-ltab')||{value:''}).value.trim(),
+        auto_logout:S._adminAutoLogout||0,
+        gsheet_id:S._gsheetId||'',
+        gsheet_client:S._gsheetClient||'',
+        gsheet_tab:S._gsheetTab||'',
+        log_sheet_tab:S._logSheetTab||'',
         line_channel_token:finalToken,
         line_channel_secret:finalSecret,
         line_basic_id:basic,
+        line_account_id:accId,
+        line_account_name:accName,
       });
       S._lineToken=finalToken; S._lineSecret=finalSecret; S._lineBasicId=basic;
       if(res){res.textContent=finalToken?'✓ 已儲存，好友驗證已啟用':'✓ 已儲存（未啟用驗證）';res.style.color='var(--ok)';}
@@ -1476,7 +1495,8 @@ const Admin={
     const logTab=(document.getElementById('sys-log-tab')||{value:''}).value.trim();
     const res=document.getElementById('sys-res');res.className='hidden';
     try{L.show();
-      await api.put('/api/admin/settings',{auto_logout:al,gsheet_id:gid,gsheet_client:gcl,gsheet_tab:gtab,log_sheet_tab:logTab});
+      await api.put('/api/admin/settings',{auto_logout:al,gsheet_id:gid,gsheet_client:gcl,gsheet_tab:gtab,log_sheet_tab:logTab,
+        line_channel_token:S._lineToken||'',line_channel_secret:S._lineSecret||'',line_basic_id:S._lineBasicId||''});
       S._adminAutoLogout=al;S._gsheetId=gid;S._gsheetClient=gcl;S._gsheetTab=gtab;S._logSheetTab=logTab;
       Admin.resetActivityTimer();
       const hint=document.getElementById('sys-gsheet-hint');

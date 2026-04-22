@@ -169,6 +169,8 @@ def init_db():
             "ALTER TABLE events ADD COLUMN booking_message TEXT DEFAULT ''",
             "ALTER TABLE admin_settings ADD COLUMN line_channel_token TEXT DEFAULT ''",
             "ALTER TABLE admin_settings ADD COLUMN line_channel_secret TEXT DEFAULT ''",
+            "ALTER TABLE admin_settings ADD COLUMN line_account_id TEXT DEFAULT ''",
+            "ALTER TABLE admin_settings ADD COLUMN line_account_name TEXT DEFAULT ''",
             "ALTER TABLE admin_settings ADD COLUMN line_basic_id TEXT DEFAULT ''",
 
             "ALTER TABLE admin_settings ADD COLUMN gsheet_id TEXT DEFAULT ''",
@@ -970,8 +972,8 @@ def import_event():
 @admin_required
 def get_admin_settings():
     with get_db() as c:
-        row = c.execute('SELECT auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab,line_channel_token,line_channel_secret,line_basic_id FROM admin_settings WHERE id=1').fetchone()
-    if not row: return ok(auto_logout=0, gsheet_id='', gsheet_client='', gsheet_tab='', log_sheet_tab='', line_channel_token='', line_channel_secret='', line_basic_id='')
+        row = c.execute('SELECT auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab,line_channel_token,line_channel_secret,line_basic_id,line_account_id,line_account_name FROM admin_settings WHERE id=1').fetchone()
+    if not row: return ok(auto_logout=0, gsheet_id='', gsheet_client='', gsheet_tab='', log_sheet_tab='', line_channel_token='', line_channel_secret='', line_basic_id='', line_account_id='', line_account_name='')
     return ok(auto_logout=row['auto_logout'],
               gsheet_id=_decrypt(row['gsheet_id'] or ''),
               gsheet_client=_decrypt(row['gsheet_client'] or ''),
@@ -1056,7 +1058,7 @@ def export_settings():
     import json
     from flask import Response
     with get_db() as c:
-        row = c.execute('SELECT auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab,line_channel_token,line_channel_secret,line_basic_id FROM admin_settings WHERE id=1').fetchone()
+        row = c.execute('SELECT auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab,line_channel_token,line_channel_secret,line_basic_id,line_account_id,line_account_name FROM admin_settings WHERE id=1').fetchone()
     data = {
         'auto_logout':        row['auto_logout']        if row else 0,
         'gsheet_id':          row['gsheet_id']          if row else '',
@@ -1098,24 +1100,7 @@ def import_settings():
              _encrypt(line_token), _encrypt(line_basic)))
     return ok()
 
-@app.put('/api/admin/settings')
-@admin_required
-def save_admin_settings():
-    d = request.json or {}
-    al = int(d.get('auto_logout', 0))
-    gsheet_id  = (d.get('gsheet_id')     or '').strip()
-    gsheet_client = (d.get('gsheet_client') or '').strip()
-    gsheet_tab     = (d.get('gsheet_tab')     or '').strip()
-    log_sheet_tab  = (d.get('log_sheet_tab')  or '').strip()
-    with get_db() as c:
-        c.execute('INSERT OR REPLACE INTO admin_settings(id,password,auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab) '
-                  'VALUES(1,(SELECT password FROM admin_settings WHERE id=1),?,?,?,?,?)',
-                  (al, gsheet_id, gsheet_client, gsheet_tab, log_sheet_tab))
-    return ok()
 
-# ══════════════════════════════════════════════════════════════════════════════
-# PUBLIC / USER
-# ══════════════════════════════════════════════════════════════════════════════
 @app.get('/api/public/config')
 def public_config():
     return ok(allowed_domains=ALLOWED_DOMAINS, line_enabled=bool(LINE_CHANNEL_ID))
@@ -1380,6 +1365,8 @@ def init_db():
             "ALTER TABLE events ADD COLUMN booking_message TEXT DEFAULT ''",
             "ALTER TABLE admin_settings ADD COLUMN line_channel_token TEXT DEFAULT ''",
             "ALTER TABLE admin_settings ADD COLUMN line_channel_secret TEXT DEFAULT ''",
+            "ALTER TABLE admin_settings ADD COLUMN line_account_id TEXT DEFAULT ''",
+            "ALTER TABLE admin_settings ADD COLUMN line_account_name TEXT DEFAULT ''",
             "ALTER TABLE admin_settings ADD COLUMN line_basic_id TEXT DEFAULT ''",
 
             "ALTER TABLE admin_settings ADD COLUMN gsheet_id TEXT DEFAULT ''",
@@ -2164,8 +2151,8 @@ def import_event():
 @admin_required
 def get_admin_settings():
     with get_db() as c:
-        row = c.execute('SELECT auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab,line_channel_token,line_channel_secret,line_basic_id FROM admin_settings WHERE id=1').fetchone()
-    if not row: return ok(auto_logout=0, gsheet_id='', gsheet_client='', gsheet_tab='', log_sheet_tab='', line_channel_token='', line_channel_secret='', line_basic_id='')
+        row = c.execute('SELECT auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab,line_channel_token,line_channel_secret,line_basic_id,line_account_id,line_account_name FROM admin_settings WHERE id=1').fetchone()
+    if not row: return ok(auto_logout=0, gsheet_id='', gsheet_client='', gsheet_tab='', log_sheet_tab='', line_channel_token='', line_channel_secret='', line_basic_id='', line_account_id='', line_account_name='')
     return ok(auto_logout=row['auto_logout'],
               gsheet_id=_decrypt(row['gsheet_id'] or ''),
               gsheet_client=_decrypt(row['gsheet_client'] or ''),
@@ -2250,7 +2237,7 @@ def export_settings():
     import json
     from flask import Response
     with get_db() as c:
-        row = c.execute('SELECT auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab,line_channel_token,line_channel_secret,line_basic_id FROM admin_settings WHERE id=1').fetchone()
+        row = c.execute('SELECT auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab,line_channel_token,line_channel_secret,line_basic_id,line_account_id,line_account_name FROM admin_settings WHERE id=1').fetchone()
     data = {
         'auto_logout':        row['auto_logout']        if row else 0,
         'gsheet_id':          row['gsheet_id']          if row else '',
@@ -2297,19 +2284,33 @@ def import_settings():
 def save_admin_settings():
     d = request.json or {}
     al = int(d.get('auto_logout', 0))
-    gsheet_id  = (d.get('gsheet_id')     or '').strip()
-    gsheet_client = (d.get('gsheet_client') or '').strip()
-    gsheet_tab     = (d.get('gsheet_tab')     or '').strip()
-    log_sheet_tab  = (d.get('log_sheet_tab')  or '').strip()
+    gsheet_id     = (d.get('gsheet_id')          or '').strip()
+    gsheet_client = (d.get('gsheet_client')       or '').strip()
+    gsheet_tab    = (d.get('gsheet_tab')          or '').strip()
+    log_sheet_tab = (d.get('log_sheet_tab')       or '').strip()
+    line_token    = (d.get('line_channel_token')  or '').strip()
+    line_secret   = (d.get('line_channel_secret') or '').strip()
+    line_basic    = (d.get('line_basic_id')       or '').strip()
+    line_acc_id   = (d.get('line_account_id')     or '').strip()
+    line_acc_name = (d.get('line_account_name')   or '').strip()
     with get_db() as c:
-        c.execute('INSERT OR REPLACE INTO admin_settings(id,password,auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab) '
-                  'VALUES(1,(SELECT password FROM admin_settings WHERE id=1),?,?,?,?,?)',
-                  (al, gsheet_id, gsheet_client, gsheet_tab, log_sheet_tab))
+        ex = c.execute('SELECT line_channel_token,line_channel_secret,line_basic_id,line_account_id,line_account_name FROM admin_settings WHERE id=1').fetchone()
+        final_token    = line_token    or _decrypt(ex['line_channel_token']   if ex else '')
+        final_secret   = line_secret   or _decrypt(ex['line_channel_secret']  if ex else '')
+        final_basic    = line_basic    or _decrypt(ex['line_basic_id']        if ex else '')
+        final_acc_id   = line_acc_id   or _decrypt(ex['line_account_id']      if ex else '')
+        final_acc_name = line_acc_name or _decrypt(ex['line_account_name']    if ex else '')
+        c.execute(
+            'INSERT OR REPLACE INTO admin_settings'
+            '(id,password,auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab,line_channel_token,line_channel_secret,line_basic_id,line_account_id,line_account_name) '
+            'VALUES(1,(SELECT password FROM admin_settings WHERE id=1),?,?,?,?,?,?,?,?,?,?)',
+            (al, _encrypt(gsheet_id), _encrypt(gsheet_client),
+             _encrypt(gsheet_tab), _encrypt(log_sheet_tab),
+             _encrypt(final_token), _encrypt(final_secret), _encrypt(final_basic),
+             _encrypt(final_acc_id), _encrypt(final_acc_name)))
     return ok()
 
-# ══════════════════════════════════════════════════════════════════════════════
-# PUBLIC / USER
-# ══════════════════════════════════════════════════════════════════════════════
+
 @app.get('/api/public/config')
 def public_config():
     return ok(allowed_domains=ALLOWED_DOMAINS, line_enabled=bool(LINE_CHANNEL_ID))
@@ -2410,9 +2411,12 @@ def line_callback():
     try:
         with get_db() as _sc:
             _settings = _sc.execute('SELECT line_channel_token, line_basic_id FROM admin_settings WHERE id=1').fetchone()
-            _token = _decrypt(_settings['line_channel_token'] or '') if _settings else ''
-            _basic = _decrypt(_settings['line_basic_id'] or '') if _settings else ''
-            if _token:
+            _token      = _decrypt(_settings['line_channel_token'] or '') if _settings else ''
+            _basic      = _decrypt(_settings['line_basic_id'] or '') if _settings else ''
+            _acc_name   = _decrypt(_settings['line_account_name'] or '') if _settings else ''
+            _acc_id   = _decrypt(_settings['line_account_id'] or '') if _settings else ''
+            # Enable check if token OR account_id is set
+            if _token or _basic:
                 # Check if user is in followers table (added via webhook)
                 _follower = _sc.execute(
                     'SELECT id FROM line_followers WHERE line_user_id=? AND unfollowed_at IS NULL',
