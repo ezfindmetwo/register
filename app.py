@@ -980,11 +980,12 @@ def import_event():
 def get_admin_settings():
     with get_db() as c:
         row = c.execute('SELECT auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab,line_channel_token,line_channel_secret,line_basic_id,line_account_id,line_account_name FROM admin_settings WHERE id=1').fetchone()
-    if not row: return ok(auto_logout=0, gsheet_id='', gsheet_client='', gsheet_tab='', log_sheet_tab='', line_channel_token='', line_channel_secret='', line_basic_id='', line_account_id='', line_account_name='')
+    if not row: return ok(auto_logout=0, gsheet_id='', gsheet_client='', gsheet_tab='', gsheet_configured=False, log_sheet_tab='', line_channel_token='', line_channel_secret='', line_basic_id='', line_account_id='', line_account_name='')
     return ok(auto_logout=row['auto_logout'],
               gsheet_id=_decrypt(row['gsheet_id'] or ''),
               gsheet_client=_decrypt(row['gsheet_client'] or ''),
               gsheet_tab=_decrypt(row['gsheet_tab'] or ''),
+              gsheet_configured=bool(row['gsheet_id'] and row['gsheet_client'] and row['gsheet_tab']),
               log_sheet_tab=_decrypt(row['log_sheet_tab'] or ''),
               line_channel_token=_decrypt(row['line_channel_token'] or ''),
               line_basic_id=_decrypt(row['line_basic_id'] or ''))
@@ -2169,11 +2170,12 @@ def import_event():
 def get_admin_settings():
     with get_db() as c:
         row = c.execute('SELECT auto_logout,gsheet_id,gsheet_client,gsheet_tab,log_sheet_tab,line_channel_token,line_channel_secret,line_basic_id,line_account_id,line_account_name FROM admin_settings WHERE id=1').fetchone()
-    if not row: return ok(auto_logout=0, gsheet_id='', gsheet_client='', gsheet_tab='', log_sheet_tab='', line_channel_token='', line_channel_secret='', line_basic_id='', line_account_id='', line_account_name='')
+    if not row: return ok(auto_logout=0, gsheet_id='', gsheet_client='', gsheet_tab='', gsheet_configured=False, log_sheet_tab='', line_channel_token='', line_channel_secret='', line_basic_id='', line_account_id='', line_account_name='')
     return ok(auto_logout=row['auto_logout'],
               gsheet_id=_decrypt(row['gsheet_id'] or ''),
               gsheet_client=_decrypt(row['gsheet_client'] or ''),
               gsheet_tab=_decrypt(row['gsheet_tab'] or ''),
+              gsheet_configured=bool(row['gsheet_id'] and row['gsheet_client'] and row['gsheet_tab']),
               log_sheet_tab=_decrypt(row['log_sheet_tab'] or ''),
               line_channel_token=_decrypt(row['line_channel_token'] or ''),
               line_basic_id=_decrypt(row['line_basic_id'] or ''))
@@ -2644,7 +2646,7 @@ def admin_cancel_booking(bid):
 # 同步流程:
 #   1. 比對 Sheet ↔ DB，找出「既有」「新增」「已刪除」三類
 #   2. 本次掃描到的列 → J 欄寫入處理日期時間
-#   3. 已刪除 → 另外在 K 欄寫「刪除」
+#   3. 已刪除 → 另外在 L 欄寫「刪除」
 #   4. 新增   → 追加到最後一列
 
 # Sheet 欄位預設索引（解析 header 後會覆蓋）
@@ -2790,7 +2792,7 @@ def _gsheet_batch_write_results(token, spreadsheet_id, tab,
     rows_checked : 本次掃描到的列號清單（1-indexed）
                    → J 欄寫入處理日期時間
     rows_to_mark : rows_checked 的子集（DB 中已不存在的列）
-                   → J 欄寫入處理日期時間 + K 欄寫「刪除」
+                   → J 欄寫入處理日期時間 + L 欄寫「刪除」
     """
     if not rows_checked:
         return
@@ -2800,10 +2802,10 @@ def _gsheet_batch_write_results(token, spreadsheet_id, tab,
     data = []
     for row_no in rows_checked:
         if row_no in deleted_set:
-            # 已刪除：J=處理日期時間，K=「刪除」
+            # 已刪除：J=處理日期時間，L=「刪除」
             data.append({
-                'range':  f'{quoted}!J{row_no}:K{row_no}',
-                'values': [[checked_at, '刪除']],
+                'range':  f'{quoted}!J{row_no}:L{row_no}',
+                'values': [[checked_at, '', '刪除']],
             })
         else:
             # 既存：僅寫 J=處理日期時間
@@ -2829,7 +2831,7 @@ def _gsheet_sync_all(eid=None):
       2. 讀取 Sheet 全部列，並從 header 動態取得欄位位置
       3. 逐列分類（已標記刪除的列跳過）：
          - 既存（DB 有）  → J 欄寫入處理日期時間
-         - 已刪除（DB 無）→ J 欄寫入處理日期時間 + K 欄寫「刪除」
+         - 已刪除（DB 無）→ J 欄寫入處理日期時間 + L 欄寫「刪除」
       4. DB 有但 Sheet 沒有的列（新增）→ 追加到末尾
 
     eid: 指定時只處理該活動的預約，其他活動的 Sheet 列完全不動
@@ -2899,7 +2901,7 @@ def _gsheet_sync_all(eid=None):
 
     # ── 3. 逐列分類 ───────────────────────────────────────────────────────
     rows_checked:  list = []   # 本次掃描到的列（更新 J 欄）
-    rows_to_mark:  list = []   # 已刪除的列（另外更新 K 欄）
+    rows_to_mark:  list = []   # 已刪除的列（另外更新 L 欄）
     sheet_keys:    set  = set()
     deleted_names: list = []   # 已刪除的人名（供 modal 顯示）
 
@@ -2907,8 +2909,8 @@ def _gsheet_sync_all(eid=None):
         if i == 0:
             continue  # 跳過 header 列
 
-        # K 欄（index 10）已有「刪除」→ 已處理過，跳過
-        if len(row) >= 11 and str(row[10]).strip() == '刪除':
+        # L 欄（index 11）已有「刪除」→ 已處理過，跳過
+        if len(row) >= 12 and str(row[11]).strip() == '刪除':
             continue
 
         padded = row + [''] * max(0, max_needed - len(row))
@@ -2937,7 +2939,7 @@ def _gsheet_sync_all(eid=None):
                    (padded[uid_idx]  if uid_idx  < len(padded) else '') or '（未知）'
             deleted_names.append(name)
 
-    # ── 批次更新 J/K 欄 ───────────────────────────────────────────────────
+    # ── 批次更新 J/L 欄 ───────────────────────────────────────────────────
     _gsheet_batch_write_results(token, sheet_id, tab, rows_checked, rows_to_mark)
 
     # ── 4. DB 有但 Sheet 沒有的列 → 追加到末尾 ───────────────────────────
@@ -2960,7 +2962,7 @@ def _gsheet_sync_all(eid=None):
 @admin_required
 def gsheet_sync():
     """手動觸發 Google Sheets 同步：
-    - DB 已刪除的預約 → J 欄寫處理時間，K 欄寫「刪除」
+    - DB 已刪除的預約 → J 欄寫處理時間，L 欄寫「刪除」
     - Sheet 沒有的新預約 → 追加到末尾
     """
     eid = (request.json or {}).get('eventId', None)
