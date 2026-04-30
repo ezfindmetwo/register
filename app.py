@@ -2805,7 +2805,7 @@ def _gsheet_batch_write_results(token, spreadsheet_id, tab,
             # 已刪除：J=處理日期時間，L=「刪除」
             data.append({
                 'range':  f'{quoted}!J{row_no}:L{row_no}',
-                'values': [[checked_at, '', '刪除']],
+                'values': [[checked_at, '', '取消預約']],
             })
         else:
             # 既存：僅寫 J=處理日期時間
@@ -2910,7 +2910,7 @@ def _gsheet_sync_all(eid=None):
             continue  # 跳過 header 列
 
         # L 欄（index 11）已有「刪除」→ 已處理過，跳過
-        if len(row) >= 12 and str(row[11]).strip() == '刪除':
+        if len(row) >= 12 and str(row[11]).strip() == '取消預約':
             continue
 
         padded = row + [''] * max(0, max_needed - len(row))
