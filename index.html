@@ -1618,6 +1618,11 @@ const Admin={
       const sheetKeys=new Set();
       const deletedNames=[];
 
+      console.log('[GSheet] sheetRows count:', sheetRows.length);
+      console.log('[GSheet] dbKeys count:', dbKeys.size, [...dbKeys].slice(0,3));
+      console.log('[GSheet] colIdx:', colIdx);
+      console.log('[GSheet] eid filter:', eid, data[0]?.event_name);
+
       sheetRows.forEach((row,i)=>{
         if(i===0) return; // 跳過 header
         if(row.length>=11 && row[10]==='刪除') return; // 已標記，跳過
@@ -1627,15 +1632,20 @@ const Admin={
         const k=toKey(p[colIdx.ev],p[colIdx.uid],p[colIdx.date],p[colIdx.start]);
         sheetKeys.add(k);
         const rowNo=i+1;
-        if(!dbKeys.has(k)){
+        const inDb=dbKeys.has(k);
+        console.log(`[GSheet] row ${rowNo}: key="${k}" inDB=${inDb}`);
+        if(!inDb){
           // 已刪除：J=處理時間, K=「刪除」
-          batchData.push({range:`${quotedTab}!J${rowNo}:K${rowNo}`,values:[[checkedAt,'刪除']]});
+          batchData.push({range:`${quotedTab}!J${rowNo}:K${rowNo}`,majorDimension:'ROWS',values:[[checkedAt,'刪除']]});
           deletedNames.push(p[colIdx.disp]||p[colIdx.uid]||'（未知）');
         } else {
           // 既存：J=處理時間
-          batchData.push({range:`${quotedTab}!J${rowNo}`,values:[[checkedAt]]});
+          batchData.push({range:`${quotedTab}!J${rowNo}`,majorDimension:'ROWS',values:[[checkedAt]]});
         }
       });
+
+      console.log('[GSheet] batchData length:', batchData.length);
+      console.log('[GSheet] deletedNames:', deletedNames);
 
       // 9. Sheet 沒有、DB 有 → 追加（含 header 若 Sheet 是空的）
       const newNames=[];
@@ -1661,7 +1671,8 @@ const Admin={
           {method:'POST',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
            body:JSON.stringify({valueInputOption:'USER_ENTERED',data:batchData})});
         const bJson=await bRes.json();
-        if(bJson.error) throw new Error(bJson.error.message);
+        console.log('[GSheet] batchUpdate response:', JSON.stringify(bJson).substring(0,300));
+        if(bJson.error) throw new Error('batchUpdate失敗：'+bJson.error.message);
       }
 
       // 11. 執行 append（新增列）

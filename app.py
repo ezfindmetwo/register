@@ -1,4 +1,5 @@
 """排程預約系統 — Flask + SQLite"""
+APP_VERSION = "20250429-1"   # ← 每次更新此處
 import os, sqlite3, random, smtplib, ssl, functools, requests as _requests
 from datetime import datetime, timedelta, timezone
 import bcrypt as _bcrypt
@@ -807,9 +808,15 @@ def admin_bookings():
 @admin_required
 def del_booking(bid):
     with get_db() as c:
-        row = c.execute('SELECT id FROM slot_bookings WHERE id=?', (bid,)).fetchone()
+        row = c.execute('SELECT id, event_id FROM slot_bookings WHERE id=?', (bid,)).fetchone()
         if not row: return err('預約不存在', 404)
+        eid = row['event_id']
         c.execute('DELETE FROM slot_bookings WHERE id=?', (bid,))
+    # ── 刪除後同步 Google Sheet（移除已刪除的列）──
+    try:
+        _gsheet_sync_all(eid=eid)
+    except Exception as e:
+        print(f'[GSheet] sync error after booking delete: {e}')
     return ok()
 
 @app.get('/api/admin/export')
@@ -1104,6 +1111,10 @@ def import_settings():
 @app.get('/api/public/config')
 def public_config():
     return ok(allowed_domains=ALLOWED_DOMAINS, line_enabled=bool(LINE_CHANNEL_ID))
+
+@app.get('/api/version')
+def api_version():
+    return ok(version=APP_VERSION)
 
 @app.get('/api/public/event')
 def public_event():
@@ -1986,9 +1997,15 @@ def admin_bookings():
 @admin_required
 def del_booking(bid):
     with get_db() as c:
-        row = c.execute('SELECT id FROM slot_bookings WHERE id=?', (bid,)).fetchone()
+        row = c.execute('SELECT id, event_id FROM slot_bookings WHERE id=?', (bid,)).fetchone()
         if not row: return err('預約不存在', 404)
+        eid = row['event_id']
         c.execute('DELETE FROM slot_bookings WHERE id=?', (bid,))
+    # ── 刪除後同步 Google Sheet（移除已刪除的列）──
+    try:
+        _gsheet_sync_all(eid=eid)
+    except Exception as e:
+        print(f'[GSheet] sync error after booking delete: {e}')
     return ok()
 
 @app.get('/api/admin/export')
@@ -2608,8 +2625,350 @@ def cancel():
 @admin_required
 def admin_cancel_booking(bid):
     with get_db() as c:
+        row = c.execute('SELECT event_id FROM slot_bookings WHERE id=?', (bid,)).fetchone()
+        eid = row['event_id'] if row else None
         c.execute('DELETE FROM slot_bookings WHERE id=?', (bid,))
+    if eid:
+        try: _gsheet_sync_all(eid=eid)
+        except Exception as e: print(f'[GSheet] sync error after force-cancel: {e}')
     return ok()
+
+
+# ── Google Sheets 同步 ────────────────────────────────────────────────────────
+#
+# Sheet 欄位順序（A-H）:
+#   A 活動名稱 / B LINE顯示名稱 / C Email / D LINE User ID /
+#   E 頭像網址 / F 預約日期    / G 開始時間 / H 結束時間
+#   J 處理日期時間 / K 刪除標記
+#
+# 同步流程:
+#   1. 比對 Sheet ↔ DB，找出「既有」「新增」「已刪除」三類
+#   2. 本次掃描到的列 → J 欄寫入處理日期時間
+#   3. 已刪除 → 另外在 K 欄寫「刪除」
+#   4. 新增   → 追加到最後一列
+
+# Sheet 欄位預設索引（解析 header 後會覆蓋）
+_SHEET_COL_DEFAULTS = {
+    'event_name':  0,   # A 活動名稱
+    'display':     1,   # B LINE顯示名稱
+    'email':       2,   # C Email
+    'line_uid':    3,   # D LINE User ID
+    'picture':     4,   # E 頭像網址
+    'date':        5,   # F 預約日期
+    'start':       6,   # G 開始時間
+    'end':         7,   # H 結束時間
+}
+_SHEET_COL_HEADER_MAP = {
+    '活動名稱':              'event_name',
+    'LINE顯示名稱':          'display',
+    'Email':                 'email',
+    'email':                 'email',
+    'LINE User ID':          'line_uid',
+    '頭像網址':              'picture',
+    '預約日期':              'date',
+    '開始時間':              'start',
+    '結束時間':              'end',
+    'LINE User ID(自動回復)': 'auto_reply_uid',  # 僅記錄用，不參與比對
+}
+
+
+def _parse_sheet_col_map(header_row):
+    """解析 header 列，回傳各欄位的欄索引對應表。"""
+    col = dict(_SHEET_COL_DEFAULTS)
+    for i, h in enumerate(header_row):
+        key = _SHEET_COL_HEADER_MAP.get(str(h).strip())
+        if key is not None:
+            col[key] = i
+    return col
+
+
+def _normalize_date(d):
+    """將日期字串正規化為 YYYY-MM-DD 格式。
+    '2026/06/02' → '2026-06-02'  '2026/6/2' → '2026-06-02'
+    """
+    d = str(d or '').strip().replace('/', '-')
+    parts = d.split('-')
+    if len(parts) == 3:
+        try:
+            return f'{int(parts[0]):04d}-{int(parts[1]):02d}-{int(parts[2]):02d}'
+        except ValueError:
+            pass
+    return d
+
+
+def _normalize_slot_time(t):
+    """將時間字串正規化為 HH:MM 格式。
+    '9:00' → '09:00'  '9:00:00' → '09:00'  '09:00:00' → '09:00'
+    """
+    t = str(t or '').strip()
+    parts = t.split(':')
+    if len(parts) >= 2:
+        try:
+            return f'{int(parts[0]):02d}:{parts[1][:2]}'
+        except ValueError:
+            pass
+    return t[:5]
+
+
+def _booking_key(event_name, line_user_id, email, booking_date, slot_start):
+    """建立預約的唯一識別鍵（tuple）。
+    優先使用 LINE UID，沒有則用 Email。日期與時間皆已正規化。
+    """
+    identity = (line_user_id or '').strip() or (email or '').strip()
+    return (
+        (event_name or '').strip(),
+        identity,
+        _normalize_date(booking_date),
+        _normalize_slot_time(slot_start),
+    )
+
+
+def _gsheet_token(sa_json_str):
+    """Service Account JSON → OAuth2 存取 Token（JWT/RS256）。"""
+    import json, time
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import padding as _pad
+    import base64 as _b64
+
+    sa  = json.loads(sa_json_str)
+    now = int(time.time())
+    hdr = _b64.urlsafe_b64encode(json.dumps({'alg': 'RS256', 'typ': 'JWT'}).encode()).rstrip(b'=')
+    clm = _b64.urlsafe_b64encode(json.dumps({
+        'iss':   sa['client_email'],
+        'scope': 'https://www.googleapis.com/auth/spreadsheets',
+        'aud':   'https://oauth2.googleapis.com/token',
+        'exp':   now + 3600,
+        'iat':   now,
+    }).encode()).rstrip(b'=')
+    msg = hdr + b'.' + clm
+    key = serialization.load_pem_private_key(sa['private_key'].encode(), password=None)
+    sig = _b64.urlsafe_b64encode(key.sign(msg, _pad.PKCS1v15(), hashes.SHA256())).rstrip(b'=')
+    assertion = (msg + b'.' + sig).decode()
+    resp = _requests.post('https://oauth2.googleapis.com/token', data={
+        'grant_type': 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        'assertion':  assertion,
+    }, timeout=15)
+    resp.raise_for_status()
+    return resp.json()['access_token']
+
+
+def _gsheet_get_values(token, spreadsheet_id, tab):
+    """讀取 Sheet 全部列資料，回傳 list[list[str]]；空表回傳 []。"""
+    from urllib.parse import quote as _urlquote
+    url  = (f'https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}'
+            f'/values/{_urlquote(tab, safe="")}')
+    resp = _requests.get(url, headers={'Authorization': f'Bearer {token}'}, timeout=15)
+    resp.raise_for_status()
+    return resp.json().get('values', [])
+
+
+def _gsheet_append_rows(token, spreadsheet_id, tab, rows):
+    """將新資料列追加到 Sheet 最後一列之後。"""
+    if not rows:
+        return
+    from urllib.parse import quote as _urlquote
+    url = (f'https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}'
+           f'/values/{_urlquote(tab, safe="")}:append')
+    _requests.post(
+        url,
+        headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+        json={'majorDimension': 'ROWS', 'values': rows},
+        params={'valueInputOption': 'USER_ENTERED', 'insertDataOption': 'INSERT_ROWS'},
+        timeout=15,
+    ).raise_for_status()
+
+
+def _quote_tab(tab):
+    """將 Sheet 分頁名稱加上單引號，供 range 字串使用（支援名稱含空格）。"""
+    return "'" + tab.replace("'", "''") + "'"
+
+
+def _gsheet_batch_write_results(token, spreadsheet_id, tab,
+                                rows_checked, rows_to_mark):
+    """將本次同步的掃描結果一次批次寫入 Sheet。
+
+    rows_checked : 本次掃描到的列號清單（1-indexed）
+                   → J 欄寫入處理日期時間
+    rows_to_mark : rows_checked 的子集（DB 中已不存在的列）
+                   → J 欄寫入處理日期時間 + K 欄寫「刪除」
+    """
+    if not rows_checked:
+        return
+    checked_at  = now_str()
+    quoted      = _quote_tab(tab)
+    deleted_set = set(rows_to_mark)
+    data = []
+    for row_no in rows_checked:
+        if row_no in deleted_set:
+            # 已刪除：J=處理日期時間，K=「刪除」
+            data.append({
+                'range':  f'{quoted}!J{row_no}:K{row_no}',
+                'values': [[checked_at, '刪除']],
+            })
+        else:
+            # 既存：僅寫 J=處理日期時間
+            data.append({
+                'range':  f'{quoted}!J{row_no}',
+                'values': [[checked_at]],
+            })
+    url = (f'https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}'
+           '/values:batchUpdate')
+    _requests.post(
+        url,
+        headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+        json={'valueInputOption': 'USER_ENTERED', 'data': data},
+        timeout=15,
+    ).raise_for_status()
+
+
+def _gsheet_sync_all(eid=None):
+    """與 Google Sheet 進行同步。
+
+    流程：
+      1. 從 DB 取得有效預約 → 建立比對用 key set
+      2. 讀取 Sheet 全部列，並從 header 動態取得欄位位置
+      3. 逐列分類（已標記刪除的列跳過）：
+         - 既存（DB 有）  → J 欄寫入處理日期時間
+         - 已刪除（DB 無）→ J 欄寫入處理日期時間 + K 欄寫「刪除」
+      4. DB 有但 Sheet 沒有的列（新增）→ 追加到末尾
+
+    eid: 指定時只處理該活動的預約，其他活動的 Sheet 列完全不動
+    """
+    with get_db() as c:
+        cfg = c.execute(
+            'SELECT gsheet_id, gsheet_client, gsheet_tab FROM admin_settings WHERE id=1'
+        ).fetchone()
+    if not cfg:
+        return
+    sheet_id    = _decrypt(cfg['gsheet_id']     or '')
+    client_json = _decrypt(cfg['gsheet_client'] or '')
+    tab         = _decrypt(cfg['gsheet_tab']    or '')
+    if not sheet_id or not client_json or not tab:
+        return  # Google Sheets 未設定
+
+    # ── 1. 從 DB 取得有效預約 ──────────────────────────────────────────────
+    with get_db() as c:
+        q = (
+            'SELECT ev.name AS event_name, u.display_name, u.email, '
+            'u.line_user_id, u.picture_url, '
+            'b.booking_date, b.slot_start_time, b.slot_end_time '
+            'FROM slot_bookings b '
+            'JOIN users  u  ON b.user_id  = u.id '
+            'JOIN events ev ON b.event_id = ev.id '
+            "WHERE (b.status IS NULL OR b.status NOT IN ('cancelled')) "
+        )
+        params: list = []
+        if eid:
+            q += 'AND b.event_id = ? '
+            params.append(eid)
+        q += 'ORDER BY b.booking_date, b.slot_start_time'
+        db_rows = c.execute(q, params).fetchall()
+
+        target_event_name: str | None = None
+        if eid:
+            ev_row = c.execute('SELECT name FROM events WHERE id=?', (eid,)).fetchone()
+            target_event_name = ev_row['name'].strip() if ev_row else None
+
+    # 建立 DB key set 及寫入 Sheet 用的資料列（依 Sheet 欄位順序）
+    db_keys:      set  = set()
+    db_data_rows: dict = {}
+    db_key_name:  dict = {}   # key → 顯示名稱（供差異報告用）
+    for r in db_rows:
+        k = _booking_key(r['event_name'], r['line_user_id'], r['email'],
+                         r['booking_date'], r['slot_start_time'])
+        db_keys.add(k)
+        db_key_name[k] = r['display_name'] or r['email'] or r['line_user_id'] or '（未知）'
+        db_data_rows[k] = [
+            r['event_name']   or '',                          # A 活動名稱
+            r['display_name'] or '',                          # B LINE顯示名稱
+            r['email']        or '',                          # C Email
+            r['line_user_id'] or '',                          # D LINE User ID
+            r['picture_url']  or '',                          # E 頭像網址
+            r['booking_date'],                                # F 預約日期
+            _normalize_slot_time(r['slot_start_time']),       # G 開始時間
+            _normalize_slot_time(r['slot_end_time']),         # H 結束時間
+        ]
+
+    token = _gsheet_token(client_json)
+
+    # ── 2. 讀取 Sheet 現有資料，動態取得欄位位置 ──────────────────────────
+    sheet_values = _gsheet_get_values(token, sheet_id, tab)
+    col = _parse_sheet_col_map(sheet_values[0] if sheet_values else [])
+    max_needed = max(col['event_name'], col['line_uid'],
+                     col['email'], col['date'], col['start']) + 1
+
+    # ── 3. 逐列分類 ───────────────────────────────────────────────────────
+    rows_checked:  list = []   # 本次掃描到的列（更新 J 欄）
+    rows_to_mark:  list = []   # 已刪除的列（另外更新 K 欄）
+    sheet_keys:    set  = set()
+    deleted_names: list = []   # 已刪除的人名（供 modal 顯示）
+
+    for i, row in enumerate(sheet_values):
+        if i == 0:
+            continue  # 跳過 header 列
+
+        # K 欄（index 10）已有「刪除」→ 已處理過，跳過
+        if len(row) >= 11 and str(row[10]).strip() == '刪除':
+            continue
+
+        padded = row + [''] * max(0, max_needed - len(row))
+
+        # eid 指定時，其他活動的列完全不動
+        ev_val = padded[col['event_name']] if col['event_name'] < len(padded) else ''
+        if target_event_name and ev_val.strip() != target_event_name:
+            continue
+
+        k = _booking_key(
+            ev_val,
+            padded[col['line_uid']] if col['line_uid'] < len(padded) else '',
+            padded[col['email']]    if col['email']    < len(padded) else '',
+            padded[col['date']]     if col['date']     < len(padded) else '',
+            padded[col['start']]    if col['start']    < len(padded) else '',
+        )
+        sheet_keys.add(k)
+        rows_checked.append(i + 1)      # 本次掃描到
+
+        if k not in db_keys:
+            rows_to_mark.append(i + 1)  # DB 已無此筆 → 標記刪除
+            # 取人名：B 欄顯示名稱優先，沒有則用 D 欄 LINE UID
+            disp_idx = col.get('display', 1)
+            uid_idx  = col.get('line_uid', 3)
+            name = (padded[disp_idx] if disp_idx < len(padded) else '') or \
+                   (padded[uid_idx]  if uid_idx  < len(padded) else '') or '（未知）'
+            deleted_names.append(name)
+
+    # ── 批次更新 J/K 欄 ───────────────────────────────────────────────────
+    _gsheet_batch_write_results(token, sheet_id, tab, rows_checked, rows_to_mark)
+
+    # ── 4. DB 有但 Sheet 沒有的列 → 追加到末尾 ───────────────────────────
+    new_keys  = [k for k in db_keys if k not in sheet_keys]
+    new_names = [db_key_name[k] for k in new_keys]
+    new_rows  = [db_data_rows[k] for k in new_keys]
+    if new_rows:
+        new_rows.sort(key=lambda r: (r[5], r[6]))
+        _gsheet_append_rows(token, sheet_id, tab, new_rows)
+
+    return {
+        'marked_deleted': len(rows_to_mark),
+        'appended':       len(new_rows),
+        'deleted_names':  deleted_names,   # Sheet 有但 DB 已刪除的人名
+        'new_names':      new_names,       # DB 有但 Sheet 沒有的人名（新增）
+    }
+
+
+@app.post('/api/admin/gsheet-sync')
+@admin_required
+def gsheet_sync():
+    """手動觸發 Google Sheets 同步：
+    - DB 已刪除的預約 → J 欄寫處理時間，K 欄寫「刪除」
+    - Sheet 沒有的新預約 → 追加到末尾
+    """
+    eid = (request.json or {}).get('eventId', None)
+    try:
+        result = _gsheet_sync_all(eid=eid)
+        return ok(**(result or {}))
+    except Exception as e:
+        return err(f'Google Sheets 同步失敗：{e}')
 
 
 # ── Month Availability ────────────────────────────────────────────────────────
@@ -2732,6 +3091,116 @@ def all_availability():
                 result[ds2] = {'status': status, 'total': total, 'booked': booked}
         cur += _td(days=1)
     return jsonify(availability=result, my_dates=list(my_dates_set), my_total=len(my_dates), excluded_dates=excluded_list, is_excluded=is_excluded)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# EXTERNAL API — Basic Auth（下週預約名單）
+# ══════════════════════════════════════════════════════════════════════════════
+def _basic_auth_required(f):
+    """使用 HTTP Basic Auth 驗證管理者密碼的裝飾器。"""
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        import base64 as _ba
+        auth_header = request.headers.get('Authorization', '')
+        if not auth_header.startswith('Basic '):
+            resp = jsonify({'error': '需要 Basic Auth 驗證'})
+            resp.headers['WWW-Authenticate'] = 'Basic realm="Scheduling API"'
+            return resp, 401
+        try:
+            decoded = _ba.b64decode(auth_header[6:]).decode('utf-8')
+            _, password = decoded.split(':', 1)   # username 不限，只驗密碼
+        except Exception:
+            return jsonify({'error': 'Authorization header 格式錯誤'}), 400
+        stored = get_admin_password()
+        if not _verify_pwd(password, stored):
+            return jsonify({'error': '密碼錯誤'}), 401
+        return f(*args, **kwargs)
+    return wrapper
+
+
+@app.get('/api/external/next-week-bookings')
+@_basic_auth_required
+def next_week_bookings():
+    """
+    回傳今天以後的所有預約名單，可依活動名稱篩選。
+
+    GET /api/external/next-week-bookings
+    GET /api/external/next-week-bookings?event_name=四月預約
+
+    Authorization: Basic base64(任意帳號:管理者密碼)
+
+    回傳 JSON:
+    {
+      "from_date":   "2026-04-24",
+      "event_name":  "四月預約",   // 篩選條件，null 表示全部
+      "total":       12,
+      "bookings": [
+        {
+          "date":              "2026-04-28",
+          "weekday":           "週二",
+          "slot_start_time":   "09:00",
+          "slot_end_time":     "09:30",
+          "line_display_name": "王小明",
+          "chinese_name":      "王小明",
+          "event_name":        "四月預約"
+        },
+        ...
+      ]
+    }
+    """
+    from datetime import date as _date
+    today      = _date.today().isoformat()
+    event_name = (request.args.get('event_name') or '').strip() or None
+
+    WEEKDAY_ZH = {0: '週一', 1: '週二', 2: '週三', 3: '週四',
+                  4: '週五', 5: '週六', 6: '週日'}
+
+    with get_db() as c:
+        if event_name:
+            rows = c.execute(
+                'SELECT b.booking_date, b.slot_start_time, b.slot_end_time, '
+                'u.display_name, u.chinese_name, ev.name as event_name '
+                'FROM slot_bookings b '
+                'JOIN users u   ON b.user_id   = u.id '
+                'JOIN events ev ON b.event_id  = ev.id '
+                "WHERE b.booking_date >= ? "
+                "  AND ev.name = ? "
+                "  AND (b.status IS NULL OR b.status NOT IN ('cancelled')) "
+                'ORDER BY b.booking_date, b.slot_start_time',
+                (today, event_name)
+            ).fetchall()
+        else:
+            rows = c.execute(
+                'SELECT b.booking_date, b.slot_start_time, b.slot_end_time, '
+                'u.display_name, u.chinese_name, ev.name as event_name '
+                'FROM slot_bookings b '
+                'JOIN users u   ON b.user_id   = u.id '
+                'JOIN events ev ON b.event_id  = ev.id '
+                "WHERE b.booking_date >= ? "
+                "  AND (b.status IS NULL OR b.status NOT IN ('cancelled')) "
+                'ORDER BY b.booking_date, b.slot_start_time',
+                (today,)
+            ).fetchall()
+
+    bookings = []
+    for r in rows:
+        d_obj = _date.fromisoformat(r['booking_date'])
+        bookings.append({
+            'date':              r['booking_date'],
+            'weekday':           WEEKDAY_ZH[d_obj.weekday()],
+            'slot_start_time':   r['slot_start_time'][:5],
+            'slot_end_time':     r['slot_end_time'][:5],
+            'line_display_name': r['display_name'] or '',
+            'chinese_name':      r['chinese_name']  or '',
+            'event_name':        r['event_name']    or '',
+        })
+
+    return jsonify({
+        'from_date':  today,
+        'event_name': event_name,
+        'total':      len(bookings),
+        'bookings':   bookings,
+    })
+
 
 @app.after_request
 def add_security_headers(response):
